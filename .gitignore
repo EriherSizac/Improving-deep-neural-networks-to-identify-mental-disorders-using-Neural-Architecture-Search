@@ -170,3 +170,11 @@ cython_debug/
 /DAIC-WOZ/train_split_Depression_AVEC2017.csv
 
 *.h5
+
+/D3TEC Dataset
+D3T3CDataset.zip
+*.zip
+Tesis_LFBrenes.pdf
+/D3T3C
+/DAIC-WOZ/folds
+/DAIC-WOZ/Recreating paper
