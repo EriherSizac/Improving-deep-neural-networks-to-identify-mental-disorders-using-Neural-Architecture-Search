@@ -177,3 +177,10 @@ D3T3CDataset.zip
 Tesis_LFBrenes.pdf
 /D3T3C
 /DAIC-WOZ/folds
+/UoA - Tec\DataSet UaA-Tec\data
+*.csv
+*.wav
+*xlsx
+*.3gp
+*.docx
+*.mp4

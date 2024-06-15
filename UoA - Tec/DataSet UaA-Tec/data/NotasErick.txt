@@ -1,0 +1,14 @@
+Demographics.csv no tiene la información de todos
+
+En la de ITESM no vienen los audios
+
+
+Augmented Audio corrupto?
+
+wearables_all_labelled -> no está labeleado y en dass21.xlsx no vienen los 24,440 registros que en el de all
+
+en la tabla de subject IDS vienen los nombres de algunas personas pero en /itesm/activity tables o /sleep no vienen todas
+
+elñ github de ramon da 404
+
+por lo que veo los datos no vienen labeled de donde son si UoA o ITESM? O los de la carpeta ITESM son los de itesm y afuera UoA?
