@@ -164,11 +164,6 @@ cython_debug/
 /DAIC-WOZ/documents/
 /DAIC-WOZ/folds/
 
-/DAIC-WOZ/dev_split_Depression_AVEC2017.csv
-/DAIC-WOZ/full_test_split.csv
-/DAIC-WOZ/test_split_Depression_AVEC2017.csv
-/DAIC-WOZ/train_split_Depression_AVEC2017.csv
-
 *.h5
 
 D:\Github\Improving-deep-neural-networks-to-identify-mental-disorders-using-Neural-Architecture-Search\D3T3C\D3TEC Dataset\
