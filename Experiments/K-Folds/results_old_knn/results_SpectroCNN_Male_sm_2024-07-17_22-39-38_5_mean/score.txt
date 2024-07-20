@@ -1,0 +1,1 @@
+accuracy: 76.16666793823242. loss: 0.5478054255247116. precision: 0.0. recall: 0.0. auc: 0.5. specificity: 0.7616665840148926
