@@ -1,1 +1,1 @@
-{"model_type": {"LuisFelipe": {"All": {"5": {"epoch": 6, "checkpoints": [], "fold_no": 1, "metrics_per_fold": {"acc_per_fold": [], "loss_per_fold": [], "precision_per_fold": [], "recall_per_fold": [], "auc_per_fold": [], "specificity_per_fold": [], "f1_per_fold": []}}}}}}
+{"model_type": {"LuisFelipe": {"All": {"5": {"epoch": 2, "checkpoints": [], "fold_no": 1, "metrics_per_fold": {"acc_per_fold": [], "loss_per_fold": [], "precision_per_fold": [], "recall_per_fold": [], "auc_per_fold": [], "specificity_per_fold": [], "f1_per_fold": []}}}}}}
