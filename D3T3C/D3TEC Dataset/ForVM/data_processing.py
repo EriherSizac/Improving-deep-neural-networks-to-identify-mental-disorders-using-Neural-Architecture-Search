@@ -11,7 +11,6 @@ from sklearn.metrics import precision_score, recall_score, f1_score, confusion_m
 from keras.models import Sequential, Model
 from keras.layers import Resizing, Conv2D, Dropout, BatchNormalization, MaxPooling2D, MaxPool2D, Flatten, Dense, Input, LeakyReLU
 from tqdm import tqdm
-import tensorflow_addons as tfa
 from model_utils import encode_model_architecture, decode_model_architecture, fixArch, generate_random_architecture, build_tf_model_from_dict
 
 # Importar funciones previamente definidas para codificar, decodificar y reparar arquitecturas
