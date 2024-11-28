@@ -1,3 +1,5 @@
+import tensorflow as tf
+from tensorflow.keras.layers import Conv2D, Dense, MaxPooling2D, Flatten, Dropout, BatchNormalization, DepthwiseConv2D
 
 # Opciones de decodificación para otros parámetros
 layer_type_options = {
@@ -362,8 +364,6 @@ def select_group_for_repetition(layers, repetition_layers):
 
     return valid_layers
 
-import tensorflow as tf
-from tensorflow.keras.layers import Conv2D, Dense, MaxPooling2D, Flatten, Dropout, BatchNormalization, DepthwiseConv2D
 
 
 
