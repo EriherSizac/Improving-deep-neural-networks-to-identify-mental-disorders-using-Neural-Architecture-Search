@@ -139,11 +139,12 @@ predefined_architectures = [
 # Función principal para generar y entrenar modelos (predefinidos y aleatorios)
 def generate_and_train_models(predefined_architectures, num_random_models=250, directory='./SM-27', target_shape=(128, 128, 1), use_kfold=True):
     results_data = []
-    config = Config(epochs=50)
+    config = Config(epochs=50,)
 
     # Cargar y preprocesar datos de audio
     print("Cargando y preprocesando datos de audio...")
     audio_dict, sample_rate = load_audio_data(directory, config.window_size, config.sample_rate)
+    config.sample_rate = sample_rate
     audio_dict = preprocess_audio(audio_dict, sample_rate)
     X, Y = train_test_split_audio(audio_dict)
     X_train_val, X_test, Y_train_val, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
