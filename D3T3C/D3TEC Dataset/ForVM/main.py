@@ -5,7 +5,7 @@ from model.encoding import encode_layer_params, decode_layer_params
 from config.config import layer_type_options
 
 def main():
-    audio_dir = './audio_data'
+    audio_dir = '../SM-27'
     sample_rate = 16000
     window_size = 5
 
