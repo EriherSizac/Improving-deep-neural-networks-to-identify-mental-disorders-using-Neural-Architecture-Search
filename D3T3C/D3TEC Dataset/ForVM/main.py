@@ -1,7 +1,6 @@
 
 from data_processing import load_audio_data, preprocess_audio, train_test_split_audio
 from model_utils import encode_layer_params, decode_layer_params, fixArch
-from train_evaluate import train_and_evaluate_model
 from keras.models import Sequential
 from data_processing import load_audio_data, preprocess_audio, train_test_split_audio, generate_and_train_models
 
