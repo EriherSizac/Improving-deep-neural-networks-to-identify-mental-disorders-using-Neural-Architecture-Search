@@ -1,4 +1,4 @@
-from config import stride_options, activation_options, dropout_options, layer_type_options
+from config.config import stride_options, activation_options, dropout_options, layer_type_options
 
 # Función para codificar los parámetros de la capa
 def encode_layer_params(layer_type_idx, param1=0, param2=0, param3=0):
