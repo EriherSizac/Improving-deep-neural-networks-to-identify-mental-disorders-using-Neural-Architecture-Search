@@ -37,11 +37,43 @@ def preprocess_audio(audio_dict, sample_rate):
         audio_dict[filename] = spec
     return audio_dict
 
+# Padding de los espectrogramas
+def pad_and_crop_spectrograms(spectrograms, target_shape=(128, 128)):
+    padded_spectrograms = []
+    for spec in spectrograms:
+        if spec.shape[0] > target_shape[0]:
+            spec = spec[:target_shape[0], :]
+        if spec.shape[1] > target_shape[1]:
+            spec = spec[:, :target_shape[1]]
+        
+        pad_width = [(0, max(0, target_shape[0] - spec.shape[0])), 
+                     (0, max(0, target_shape[1] - spec.shape[1]))]
+        
+        padded_spec = np.pad(spec, pad_width, mode='constant')
+        padded_spectrograms.append(padded_spec)
+    return np.array(padded_spectrograms)
+
+
+# Split de audio en train y test
 def train_test_split_audio(audio_dict):
+    df = pd.read_csv('Dataset.csv', usecols=['Participant_ID', 'PHQ-9 Score'], dtype={1: str})
+    df['labels'] = np.zeros([len(df),], dtype=int)
+    df.loc[df['PHQ-9 Score'] < 10, 'labels'] = 0
+    df.loc[df['PHQ-9 Score'] >= 10, 'labels'] = 1
+
+    labels = df.set_index('Participant_ID').to_dict()['labels']
+
     X, Y = [], []
-    for data in audio_dict.values():
-        X.append(data)
-        Y.append(0)  # Placeholder for labels
-    X = np.array(X)
+    for filename, data in tqdm(audio_dict.items(), 'LABEL'):
+        ID = filename[:3]
+        if ID in labels:
+            dep = 0 if labels[ID] == 0 else 1
+            [X.append(x) for x in data]
+            [Y.append(dep) for x in data]
+
+    X = pad_and_crop_spectrograms(X)
     Y = np.array(Y)
-    return train_test_split(X, Y, test_size=0.2, random_state=42)
+
+    X = X[..., np.newaxis]
+    print(f"X shape: {X.shape}, Y shape: {Y.shape}")
+    return X, Y
