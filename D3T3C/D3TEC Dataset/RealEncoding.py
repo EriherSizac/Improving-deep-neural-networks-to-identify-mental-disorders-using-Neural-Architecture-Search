@@ -3,9 +3,32 @@
 
 # %%
 from tensorflow.keras import Sequential
-from tensorflow.keras.layers import Conv2D, BatchNormalization, MaxPooling2D, Flatten, Dense, Dropout, DepthwiseConv2D
+from tensorflow.keras.layers import Conv2D, BatchNormalization, MaxPooling2D, Flatten, Dense, Dropout, DepthwiseConv2D, Resizing, MaxPool2D,  Input, LeakyReLU
 import tensorflow as tf
+import random
+import os
+import copy
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import torchaudio
+import torch
+from sklearn.model_selection import train_test_split, KFold,  GridSearchCV, RandomizedSearchCV, StratifiedKFold
+from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
+from keras.models import Sequential, Model
+from tqdm import tqdm
 
+import xgboost as xgb
+from sklearn.metrics import make_scorer, mean_squared_error, mean_absolute_error, r2_score
+import joblib
+import pandas as pd
+
+# %%
+from sklearn.svm import SVR
+
+import ast  # Para convertir la arquitectura en una lista
+import seaborn as sns
+from scipy.stats import pearsonr, spearmanr, kendalltau
 # %%
 # Opciones de decodificación para otros parámetros
 layer_type_options = {
@@ -80,27 +103,6 @@ def decode_layer_params(encoded_params):
         return {'type': "DontCare"}
 
     return None
-
-# Ejemplos de codificación y decodificación
-encoded_conv2d = encode_layer_params(0, 16, 0, 0)  # Conv2D con 16 filtros, stride 1 y activación ReLU
-decoded_conv2d = decode_layer_params(encoded_conv2d)
-print(f"\nCodificación real de Conv2D: {encoded_conv2d}")
-print(f"Decodificación Conv2D: {decoded_conv2d}")
-
-encoded_dropout = encode_layer_params(3, 1)  # Dropout con tasa de 0.3
-decoded_dropout = decode_layer_params(encoded_dropout)
-print(f"\nCodificación real de Dropout: {encoded_dropout}")
-print(f"Decodificación Dropout: {decoded_dropout}")
-
-encoded_dense = encode_layer_params(4, 128, 0)  # Dense con 128 neuronas y activación ReLU
-decoded_dense = decode_layer_params(encoded_dense)
-print(f"\nCodificación real de Dense: {encoded_dense}")
-print(f"Decodificación Dense: {decoded_dense}")
-
-encoded_repetition = encode_layer_params(8, 3, 5)  # Repetition para repetir las últimas 3 capas 5 veces
-decoded_repetition = decode_layer_params(encoded_repetition)
-print(f"\nCodificación real de Repetition: {encoded_repetition}")
-print(f"Decodificación Repetition: {decoded_repetition}")
 
 
 # %% [markdown]
@@ -184,9 +186,6 @@ def encode_model_architecture(model_dict, max_alleles=48):
     
     return final_encoding
 
-
-# %%
-import random
 
 def fixArch(encoded_model, verbose=False):
     """
@@ -287,102 +286,6 @@ def fixArch(encoded_model, verbose=False):
         index += 4  # Avanzar al siguiente grupo de parámetros
 
     return fixed_layers[:48]  # Limitar a 48 alelos
-
-
-# %%
-
-
-# %%
-# Ejecutar ejemplos de prueba para la función fixArch con arquitecturas de 12 capas (48 valores en total)
-
-# Ejemplo 1: Arquitectura sin Flatten antes de Dense y con capas adicionales
-encoded_model_1 = [
-    0, 3, 0, 0,    # Conv2D, 32 filtros, stride 1, activación relu
-    2, 1, 0, 0,    # MaxPooling, stride 2
-    4, 2, 1, 0,    # Dense, 128 neuronas, activación leaky_relu (sin Flatten antes)
-    7, 0, 0, 0,    # DontCare
-    1, 0, 0, 0,    # BatchNorm
-    3, 2, 0, 0,    # Dropout, tasa 0.4
-    0, 1, 1, 0,    # Conv2D, 16 filtros, stride 2, activación relu
-    6, 1, 1, 0,    # DepthwiseConv2D, 16 filtros, stride 2, activación relu
-    5, 0, 0, 0,    # Flatten
-    4, 3, 2, 0,    # Dense, 256 neuronas, activación sigmoid
-    4, 1, 3, 0,    # Dense, 32 neuronas, activación tanh
-    4, 1, 2, 0     # Dense, 32 neuronas, activación sigmoid
-]
-
-# Ejemplo 2: Arquitectura con Flatten al inicio (inválido) y sin Dense al final
-encoded_model_2 = [
-    5, 0, 0, 0,    # Flatten (inválido al inicio)
-    0, 2, 1, 1,    # Conv2D, 30 filtros, stride 2, activación leaky_relu
-    2, 1, 0, 0,    # MaxPooling, stride 2
-    3, 1, 0, 0,    # Dropout, tasa 0.3
-    1, 0, 0, 0,    # BatchNorm
-    0, 1, 0, 0,    # Conv2D, 16 filtros, stride 1, activación relu
-    6, 2, 1, 0,    # DepthwiseConv2D, 30 filtros, stride 2, activación relu
-    4, 2, 1, 0,    # Dense, 128 neuronas, activación leaky_relu
-    3, 0, 0, 0,    # Dropout, tasa 0.2
-    1, 0, 0, 0,    # BatchNorm
-    4, 3, 3, 0,    # Dense, 256 neuronas, activación tanh
-    7, 0, 0, 0     # DontCare
-]
-
-# Ejemplo 3: Arquitectura con Repetition y sin Dense al final
-encoded_model_3 = [
-    0, 1, 0, 0,    # Conv2D, 16 filtros, stride 1, activación relu
-    8, 2, 2, 0,    # Repetition, repite las últimas 2 capas 2 veces
-    5, 0, 0, 0,    # Flatten
-    2, 1, 0, 0,    # MaxPooling, stride 2
-    3, 1, 0, 0,    # Dropout, tasa 0.3
-    6, 2, 1, 0,    # DepthwiseConv2D, 30 filtros, stride 2, activación relu
-    0, 3, 0, 1,    # Conv2D, 32 filtros, stride 1, activación leaky_relu
-    1, 0, 0, 0,    # BatchNorm
-    5, 0, 0, 0,    # Flatten
-    4, 2, 1, 0,    # Dense, 128 neuronas, activación leaky_relu
-    7, 0, 0, 0,    # DontCare
-    3, 2, 0, 0     # Dropout, tasa 0.4
-]
-
-# Ejemplo 4: Arquitectura con parámetros fuera de límite
-encoded_model_4 = [
-    0, 4, 2, 1,    # Conv2D, 64 filtros (fuera de límite), stride 2, activación leaky_relu
-    3, 5, 0, 0,    # Dropout, tasa 0.6 (fuera de límite)
-    4, 5, 3, 0,    # Dense, 512 neuronas (fuera de límite), activación sigmoid
-    6, 4, 2, 0,    # DepthwiseConv2D, 64 filtros (fuera de límite), stride 2, activación relu
-    1, 0, 0, 0,    # BatchNorm
-    3, 3, 0, 0,    # Dropout, tasa 0.5
-    5, 0, 0, 0,    # Flatten
-    2, 1, 0, 0,    # MaxPooling, stride 2
-    0, 1, 0, 0,    # Conv2D, 16 filtros, stride 1, activación relu
-    4, 3, 1, 0,    # Dense, 256 neuronas, activación leaky_relu
-    7, 0, 0, 0,    # DontCare
-    4, 1, 2, 0     # Dense, 32 neuronas, activación sigmoid
-]
-# Ejemplo 5: Arquitectura con capa de Repetition que repite las últimas capas
-encoded_model_5 = [
-    0, 2, 1, 0,    # Conv2D, 30 filtros, stride 2, activación relu
-    8, 2, 3, 0,    # Repetition, repite las últimas 2 capas 3 veces
-    5, 0, 0, 0,    # Flatten
-    2, 1, 0, 0,    # MaxPooling, stride 2
-    3, 1, 0, 0,    # Dropout, tasa 0.3
-    6, 2, 1, 0,    # DepthwiseConv2D, 30 filtros, stride 2, activación relu
-    0, 3, 0, 1,    # Conv2D, 32 filtros, stride 1, activación leaky_relu
-    1, 0, 0, 0,    # BatchNorm
-    5, 0, 0, 0,    # Flatten
-    4, 2, 1, 0,    # Dense, 128 neuronas, activación leaky_relu
-    7, 0, 0, 0,    # DontCare
-    3, 2, 0, 0     # Dropout, tasa 0.4
-]
-
-# Lista de modelos para probar
-model_examples = [encoded_model_1, encoded_model_2, encoded_model_3, encoded_model_4, encoded_model_5]
-
-# Ejecución de pruebas
-for i, model in enumerate(model_examples, 1):
-    print(f"\n--- Ejemplo {i} ---")
-    fixed_model = fixArch(model, verbose=True)
-    print(f"Modelo Original: {len(model)} alelos\n{model}") 
-    print(f"Modelo Corregido: {len(fixed_model)} alelos\n{fixed_model}")
 
 
 # %%
@@ -499,29 +402,8 @@ def select_group_for_repetition(layers, repetition_layers):
     return valid_layers
 
 
-# %%
-# Reparar cada ejemplo con fixArch y luego decodificar con decode_model_architecture
-repaired_and_decoded_models = []
-
-for i, encoded_model in enumerate([encoded_model_1, encoded_model_2, encoded_model_3, encoded_model_4, encoded_model_5], 1):
-    # Reparar el modelo
-    repaired_model = fixArch(encoded_model, verbose=True)
-    # Decodificar el modelo reparado
-    decoded_model = decode_model_architecture(repaired_model)
-    # Guardar el modelo decodificado
-    repaired_and_decoded_models.append(decoded_model)
-    print(f"\n--- Modelo {i} Decodificado ---")
-    print(decoded_model)
-
-# Opcional: Mostrar todos los modelos decodificados juntos
-print("\n--- Todos los Modelos Decodificados ---")
-for i, model in enumerate(repaired_and_decoded_models, 1):
-    print(f"Modelo {i} Decodificado:", model)
 
 # %%
-import tensorflow as tf
-from tensorflow.keras.layers import Conv2D, Dense, MaxPooling2D, Flatten, Dropout, BatchNormalization, DepthwiseConv2D
-
 
 
 def build_tf_model_from_dict(model_dict, input_shape=(28, 28, 3)):
@@ -558,257 +440,6 @@ def build_tf_model_from_dict(model_dict, input_shape=(28, 28, 3)):
             model.add(DontCareLayer())
     
     return model
-
-
-# %%
-# Ejemplo 1: build_CNN_LF_model
-model_CNN_LF = {
-    "layers": [
-        {"type": "Conv2D", "filters": 30, "strides": 1, "activation": "relu"},
-        {"type": "Dropout", "rate": 0.2},
-        {"type": "BatchNorm"},
-        {"type": "MaxPooling", "strides": 2},
-        {"type": "Conv2D", "filters": 16, "strides": 1, "activation": "relu"},  # Revisar 'filters'
-        {"type": "Dropout", "rate": 0.2},
-        {"type": "BatchNorm"},
-        {"type": "MaxPooling", "strides": 2},
-        {"type": "Flatten"},
-        {"type": "Dense", "units": 256, "activation": "relu"},
-        {"type": "Dropout", "rate": 0.3},
-        {"type": "Dense", "units": 1, "activation": "sigmoid"}  # Revisar 'units'
-    ]
-}
-
-# Ejemplo 2: build_reduced_model
-model_reduced = {
-    "layers": [
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 16, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 8, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Flatten"},
-        {"type": "Dense", "units": 32, "activation": "leaky_relu"},
-        {"type": "Dense", "units": 1, "activation": "sigmoid"}  # Revisar 'units'
-    ]
-}
-
-# Ejemplo 3: build_Spectro_CNN_model
-model_spectro_CNN = {
-    "layers": [
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "MaxPooling", "strides": 2}, 
-         
-         
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-         {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-         {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        
-    {"type":"Flatten"},
-    {"type":"Dense","units":256,"activation":"relu"},   
-    {"type":"Dropout","rate":0.5},
-                
-        {"type": "Dense", "units": 1, "activation": "sigmoid"}  # Revisar 'units'
-    ]
-}
-
-# Ejemplo corregido: build_Spectro_CNN_model con capas de repetición
-model_spectro_CNN_with_repetition = {
-    "layers": [
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
-        {"type": "BatchNorm"},
-        {"type": "MaxPooling", "strides": 2}, 
-        # Aquí indicamos que las siguientes 10 capas (5 Conv2D + 5 BatchNorm) se repiten 10 veces
-        {"type": "Repetition", "repetition_layers": 3, "repetition_count": 31},
-        {"type": "Flatten"},
-        {"type": "Dense", "units": 256, "activation": "relu"},
-        {"type": "Dropout", "rate": 0.5},
-        {"type": "Dense", "units": 1, "activation": "sigmoid"}
-    ]
-}
-
-
-# Ejemplo 4: Simple Conv2D model
-model_simple_conv = {
-    "layers": [
-        {"type": "Conv2D", "filters": 16, "strides": 1, "activation": "relu"},
-        {"type": "Flatten"},
-        {"type": "Dense", "units": 128, "activation": "relu"},
-        {"type": "Dense", "units": 1, "activation": "sigmoid"}  # Revisar 'units'
-    ]
-}
-
-# Ejemplo 5: Simple Dense model
-model_dense_only = {
-    "layers": [
-        {"type": "Flatten"},
-        {"type": "Dense", "units": 256, "activation": "relu"},
-        {"type": "Dense", "units": 128, "activation": "relu"},
-        {"type": "Dense", "units": 256, "activation": "sigmoid"}
-    ]
-}
-
-# Ejemplo 6: Small CNN model with Dropout
-model_small_CNN = {
-    "layers": [
-        {"type": "Conv2D", "filters": 8, "strides": 1, "activation": "relu"},
-        {"type": "Dropout", "rate": 0.2},
-        {"type": "MaxPooling", "strides": 2},
-        {"type": "Flatten"},
-        {"type": "Dense", "units": 32, "activation": "relu"},
-        {"type": "Dense", "units": 1, "activation": "sigmoid"}  # Revisar 'units'
-    ]
-}
-
-# Ejemplo 7: Deep CNN model
-model_deep_CNN = {
-    "layers": [
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "relu"},
-        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "relu"},
-        {"type": "MaxPooling", "strides": 2},
-        {"type": "Flatten"},
-        {"type": "Dense", "units": 32, "activation": "relu"},
-        {"type": "Dense", "units": 10, "activation": "sigmoid"}  # Revisar 'units'
-    ]
-}
-
-# Ejemplo 8: Basic Dense with Dropout
-model_dense_dropout = {
-    "layers": [
-        {"type": "Flatten"},
-        {"type": "Dense", "units": 128, "activation": "relu"},
-        {"type": "Dropout", "rate": 0.5},
-        {"type": "Dense", "units": 32, "activation": "tanh"}
-    ]
-}
-
-model_with_depthwise = {
-    "layers": [
-        {"type": "DepthwiseConv2D", "filters": 16, "strides": 1, "activation": "relu"},
-        {"type": "BatchNorm"},
-        {"type": "MaxPooling", "strides": 2},
-        {"type": "Dense", "units": 128, "activation": "sigmoid"},
-        {"type": "Dense", "units": 1, "activation": "tanh"}
-    ]
-}
 
 
 
@@ -849,57 +480,6 @@ def process_model_pipeline(model_dict, input_shape=(28, 28, 3), verbose=False):
     return tf_model
 
 
-# Ejemplo de uso con un modelo y verbose activado
-
-
-
-# %%
-
-# Verificación de los modelos
-print("Verifications:")
-
-print("\nModel 1: CNN_LF")
-tf_model_example = process_model_pipeline(model_CNN_LF, verbose=True)  # Ejemplo 1
-
-print("\nModel 2: Reduced")
-tf_model_example = process_model_pipeline(model_reduced, verbose=True)  # Ejemplo 2
-
-print("\nModel 3: Spectro CNN")
-tf_model_example = process_model_pipeline(model_spectro_CNN, verbose=True)  # Ejemplo 3
-
-print("\nModel 3.5 Spectro CNN with repetition")
-tf_model_example = process_model_pipeline(model_spectro_CNN_with_repetition, verbose=True)  # Ejemplo 3
-
-print("\nModel 4: Simple Conv2D")
-tf_model_example = process_model_pipeline(model_simple_conv, verbose=True)  # Ejemplo 4
-
-print("\nModel 5: Dense Only")
-tf_model_example = process_model_pipeline(model_dense_only, verbose=True)  # Ejemplo 5
-
-print("\nModel 6: Small CNN")
-tf_model_example = process_model_pipeline(model_small_CNN, verbose=True)  # Ejemplo 6
-
-print("\nModel 7: Deep CNN")
-tf_model_example = process_model_pipeline(model_deep_CNN, verbose=True)  # Ejemplo 7
-
-print("\nModel 8: Dense with Dropout")
-tf_model_example = process_model_pipeline(model_dense_dropout, verbose=True)  # Ejemplo 8
-
-print("\nModel with DepthwiseConv2D")
-tf_model_example = process_model_pipeline(model_with_depthwise)
-
-
-
-# %% [markdown]
-# # Testing random generated architectures
-# 
-
-# %% [markdown]
-# 
-
-# %%
-import random
-import tensorflow as tf
 
 def generate_random_architecture():
     num_layers = 12
@@ -979,7 +559,7 @@ def generate_and_compare_repaired_models(num_models=1000):
     print(f"\nModelos únicos después de la reparación: {unique_count}")
     print(f"Modelos duplicados después de la reparación: {duplicate_count}")
 
-generate_and_compare_repaired_models(num_models=200)
+#generate_and_compare_repaired_models(num_models=200)
 
 
 # %% [markdown]
@@ -987,19 +567,7 @@ generate_and_compare_repaired_models(num_models=200)
 # 
 
 # %%
-import os
-import copy
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import tensorflow as tf
-import torchaudio
-import torch
-from sklearn.model_selection import train_test_split, KFold
-from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
-from keras.models import Sequential, Model
-from keras.layers import Resizing, Conv2D, Dropout, BatchNormalization, MaxPooling2D, MaxPool2D, Flatten, Dense, Input, LeakyReLU
-from tqdm import tqdm
+
 
 
 # Importar funciones previamente definidas para codificar, decodificar y reparar arquitecturas
@@ -1138,7 +706,7 @@ def generate_and_train_models(predefined_architectures, num_random_models=250, d
     X_train_val, X_test, Y_train_val, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
 
     if use_kfold:
-        kfold = KFold(n_splits=config.n_splits, shuffle=True)
+        kfold = StratifiedKFold(n_splits=config.n_splits, shuffle=True, random_state=42)
 
     # Entrenar y evaluar arquitecturas predefinidas
     for i, architecture in enumerate(predefined_architectures):
@@ -1191,16 +759,9 @@ def evaluate_and_store_model(architecture, X_train_val, X_test, Y_train_val, Y_t
 generate_and_train_models(predefined_architectures, num_random_models=270, target_shape=(128, 128, 1), use_kfold=True)
 
 
-
-
-
-
 # %% [markdown]
 # ## Revisando distribucion del dataset
 
-# %%
-import pandas as pd
-import matplotlib.pyplot as plt
 
 # Cargar el dataset desde el archivo CSV
 file_path = './model_results_combined.csv'
@@ -1230,12 +791,7 @@ plt.show()
 # ## XGBoostB
 
 # %%
-import numpy as np
-import xgboost as xgb
-from sklearn.model_selection import train_test_split, GridSearchCV, RandomizedSearchCV
-from sklearn.metrics import make_scorer, mean_squared_error
-import joblib
-import pandas as pd
+
 
 # Cargar los datos
 data = pd.read_csv('./model_results_combined.csv')
@@ -1372,9 +928,6 @@ for (metric, search_type), result in results.items():
 # ### PRobar aleatorios
 
 # %%
-import numpy as np
-import joblib
-import pandas as pd
 
 # Cargar los modelos ganadores para cada métrica
 metric_models = {}
@@ -1419,10 +972,53 @@ df_results
 # ### Metricas de comparacion
 
 # %%
-import numpy as np
-import joblib
-import pandas as pd
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+
+# Ejemplo 1: build_CNN_LF_model
+model_CNN_LF = {
+    "layers": [
+        {"type": "Conv2D", "filters": 30, "strides": 1, "activation": "relu"},
+        {"type": "Dropout", "rate": 0.2},
+        {"type": "BatchNorm"},
+        {"type": "MaxPooling", "strides": 2},
+        {"type": "Conv2D", "filters": 16, "strides": 1, "activation": "relu"},  # Revisar 'filters'
+        {"type": "Dropout", "rate": 0.2},
+        {"type": "BatchNorm"},
+        {"type": "MaxPooling", "strides": 2},
+        {"type": "Flatten"},
+        {"type": "Dense", "units": 256, "activation": "relu"},
+        {"type": "Dropout", "rate": 0.3},
+        {"type": "Dense", "units": 1, "activation": "sigmoid"}  # Revisar 'units'
+    ]
+}
+
+# Ejemplo 2: build_reduced_model
+model_reduced = {
+    "layers": [
+        {"type": "BatchNorm"},
+        {"type": "Conv2D", "filters": 16, "strides": 1, "activation": "leaky_relu"},
+        {"type": "BatchNorm"},
+        {"type": "Conv2D", "filters": 8, "strides": 1, "activation": "leaky_relu"},
+        {"type": "BatchNorm"},
+        {"type": "Flatten"},
+        {"type": "Dense", "units": 32, "activation": "leaky_relu"},
+        {"type": "Dense", "units": 1, "activation": "sigmoid"}  # Revisar 'units'
+    ]
+}
+
+# Ejemplo corregido: build_Spectro_CNN_model con capas de repetición
+model_spectro_CNN = {
+    "layers": [
+        {"type": "Conv2D", "filters": 32, "strides": 1, "activation": "leaky_relu"},
+        {"type": "BatchNorm"},
+        {"type": "MaxPooling", "strides": 2}, 
+        # Aquí indicamos que las siguientes 10 capas (5 Conv2D + 5 BatchNorm) se repiten 10 veces
+        {"type": "Repetition", "repetition_layers": 3, "repetition_count": 31},
+        {"type": "Flatten"},
+        {"type": "Dense", "units": 256, "activation": "relu"},
+        {"type": "Dropout", "rate": 0.5},
+        {"type": "Dense", "units": 1, "activation": "sigmoid"}
+    ]
+}
 
 # Cargar los resultados reales del CSV de experimentos completados
 real_results = pd.read_csv('experiment_results.csv')
@@ -1520,13 +1116,7 @@ df_comparison_metrics
 # %% [markdown]
 # ## SVM
 
-# %%
-import numpy as np
-from sklearn.svm import SVR
-from sklearn.model_selection import train_test_split, GridSearchCV, RandomizedSearchCV
-from sklearn.metrics import make_scorer, mean_squared_error
-import joblib
-import pandas as pd
+
 
 # Cargar los datos
 print("Cargando los datos...")
@@ -1671,10 +1261,7 @@ for (metric, search_type), result in results.items():
 
 
 # %%
-import numpy as np
-import joblib
-import pandas as pd
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+
 
 # Cargar los resultados reales del CSV de experimentos completados
 real_results = pd.read_csv('experiment_results.csv')
@@ -1802,34 +1389,13 @@ def compute_synflow_scores(model, input_size):
 # Reparar cada ejemplo con fixArch y luego decodificar con decode_model_architecture
 repaired_and_decoded_models = []
 
-for i, encoded_model in enumerate([encoded_model_1, encoded_model_2, encoded_model_3, encoded_model_4, encoded_model_5], 1):
-    # Reparar el modelo
-    repaired_model = fixArch(encoded_model, verbose=True)
-    # Decodificar el modelo reparado
-    decoded_model = decode_model_architecture(repaired_model)
-    tf_model = build_tf_model_from_dict(decoded_model, input_shape=(128, 128, 1))
-    synflow_score = compute_synflow_scores(tf_model, input_size=(1, 128, 128, 1))  # Espectrograma como entrada
-    print(f"SynFlow Score para el modelo {i}: {synflow_score}")
-    # Guardar el modelo decodificado
-    repaired_and_decoded_models.append(decoded_model)
-    print(f"\n--- Modelo {i} Decodificado ---")
-    print(decoded_model)
-
-# Opcional: Mostrar todos los modelos decodificados juntos
-print("\n--- Todos los Modelos Decodificados ---")
-for i, model in enumerate(repaired_and_decoded_models, 1):
-    print(f"Modelo {i} Decodificado:", model)
 
 
 # %% [markdown]
 # ## Revisar significancia de synflow
 
-# %%
-import pandas as pd
-import numpy as np
-import tensorflow as tf
-from sklearn.metrics import r2_score
-import ast  # Para convertir la arquitectura en una lista
+
+
 
 
 # Leer el dataset
@@ -1868,13 +1434,7 @@ df.to_csv("./dataset_with_synflow.csv", index=False)
 print("Dataset actualizado con SynFlow guardado como 'dataset_with_synflow.csv'")
 
 
-# %%
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from scipy.stats import pearsonr, spearmanr, kendalltau
-from sklearn.metrics import r2_score
+
 
 # Función para calcular todas las métricas de correlación
 def compute_correlations(x, y):
