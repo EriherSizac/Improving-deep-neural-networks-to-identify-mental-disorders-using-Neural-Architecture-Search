@@ -7,7 +7,7 @@ import numpy as np
 from sklearn.model_selection import train_test_split, GridSearchCV, RandomizedSearchCV
 from sklearn.metrics import mean_squared_error, r2_score, make_scorer
 import joblib
-from refactor.utils import (
+from utils import (
     generate_random_architecture, encode_model_architecture,
     fixArch, generate_and_train_models, build_tf_model_from_dict,
     decode_model_architecture, predefined_architectures
