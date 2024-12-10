@@ -626,7 +626,7 @@ def evaluate_and_store_model(architecture, X_train_val, X_test, Y_train_val, Y_t
 
     if use_kfold:
         fold_results = []
-        for fold, (train_index, val_index) in enumerate(StratifiedKFold.split(X_train_val, Y_train_val)):
+        for fold, (train_index, val_index) in enumerate(kfold.split(X_train_val, Y_train_val)):
             print(f"Entrenando fold {fold + 1}/{config.n_splits}...")
             X_train, X_val = X_train_val[train_index], X_train_val[val_index]
             Y_train, Y_val = Y_train_val[train_index], Y_train_val[val_index]
