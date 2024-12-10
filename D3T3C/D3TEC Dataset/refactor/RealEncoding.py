@@ -7,12 +7,11 @@ import numpy as np
 from sklearn.model_selection import train_test_split, GridSearchCV, RandomizedSearchCV
 from sklearn.metrics import mean_squared_error, r2_score, make_scorer
 import joblib
-# from .utils import (
-#     generate_random_architecture, encode_model_architecture,
-#     fixArch, generate_and_train_models, build_tf_model_from_dict,
-#     decode_model_architecture, predefined_architectures
-# )
-from .utils import *
+from refactor.utils import (
+    generate_random_architecture, encode_model_architecture,
+    fixArch, generate_and_train_models, build_tf_model_from_dict,
+    decode_model_architecture, predefined_architectures
+)
 import xgboost as xgb
 # Generar y entrenar modelos predefinidos y aleatorios
 print("Generando y entrenando modelos...")
