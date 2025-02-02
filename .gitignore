@@ -170,7 +170,7 @@ cython_debug/
 *.zip
 Tesis_LFBrenes.pdf
 /UoA - Tec\DataSet UaA-Tec\data
-*.csv
+#*.csv
 *.wav
 *xlsx
 *.3gp
@@ -179,3 +179,4 @@ Tesis_LFBrenes.pdf
 *.pkl
 *.png
 D3T3C/D3TEC Dataset/balanced_subset.json
+/UoA - Tec

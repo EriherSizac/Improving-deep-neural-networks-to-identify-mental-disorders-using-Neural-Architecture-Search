@@ -1,0 +1,13 @@
+Metric,Test,Statistic,p-value,GroupBy
+Loss,Friedman Test,30.066666666666663,4.743840848012242e-06,Window Size
+Accuracy,Friedman Test,36.53333333333333,2.2474707465915715e-07,Window Size
+Precision,Friedman Test,27.0,1.987890675256922e-05,Window Size
+Recall,Friedman Test,12.333333333333343,0.015037231996246415,Window Size
+F1-score,Friedman Test,10.333333333333343,0.035171885487712176,Window Size
+Specificity,Friedman Test,28.26666666666665,1.1013007134524733e-05,Window Size
+Loss,Friedman Test,1.9000000000000057,0.3867410234545001,Architecture
+Accuracy,Friedman Test,33.60000000000002,5.056531348335465e-08,Architecture
+Precision,Friedman Test,31.600000000000023,1.3745077279213825e-07,Architecture
+Recall,Friedman Test,24.69999999999999,4.329753266093003e-06,Architecture
+F1-score,Friedman Test,29.100000000000023,4.797503368127275e-07,Architecture
+Specificity,Friedman Test,21.69999999999999,1.940460788990955e-05,Architecture

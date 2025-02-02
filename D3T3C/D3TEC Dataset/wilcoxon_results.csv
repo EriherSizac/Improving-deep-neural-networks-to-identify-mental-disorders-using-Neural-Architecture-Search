@@ -1,0 +1,7 @@
+Metric,Test,Statistic,p-value,GroupBy
+Loss,Wilcoxon Test,183.0,0.31839608028531075,Epochs
+Accuracy,Wilcoxon Test,4.0,1.30385160446167e-08,Epochs
+Precision,Wilcoxon Test,50.0,5.5925920605659485e-05,Epochs
+Recall,Wilcoxon Test,201.0,0.5291051845997572,Epochs
+F1-score,Wilcoxon Test,118.0,0.017453668639063835,Epochs
+Specificity,Wilcoxon Test,73.0,0.0017807569949149695,Epochs
