@@ -1152,6 +1152,7 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
     model.eval()
     correct = 0
     total = 0
+    y_true, y_pred = [], []
 
     with torch.no_grad():
         for inputs, labels in test_loader:
@@ -1160,12 +1161,17 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
 
             outputs = model(inputs).squeeze()  # 📌 Convertir [batch_size, 1] → [batch_size]
             predictions = (torch.sigmoid(outputs) > 0.5).int()
+            _, predicted = torch.max(outputs, 1)
+            y_true.extend(labels.cpu().numpy())
+            y_pred.extend(predicted.cpu().numpy())
+            #correct += (predictions == labels.int()).sum().item()
+            #total += labels.size(0)
 
-            correct += (predictions == labels.int()).sum().item()
-            total += labels.size(0)
+    accuracy = (np.array(y_true) == np.array(y_pred)).mean()
+    precision, recall, f1 = calculate_f1_score(y_true, y_pred)
 
-    accuracy = correct / total
-    print(f"📌 Exactitud en test: {accuracy:.4f}")
+    return [accuracy, precision, recall, f1]
+
 
     return accuracy
 
@@ -1188,7 +1194,8 @@ def load_architectures_from_csv(csv_path):
     architectures = df['Encoded Chromosome'].apply(lambda x: [int(i) for i in x.strip("[]").split(",")])
     return architectures.tolist()
 
-train_models("EncodedChromosomes_V3.csv", "Dataset.csv", "./SM-27", save_file="EncodedChromosomes_V3_results.csv")
+train_models("EncodedChromosomes_V3.csv", "Dataset.csv", "./SM-27",
+             save_file="EncodedChromosomes_V3_results.csv")
 
 
 # %% [markdown]
