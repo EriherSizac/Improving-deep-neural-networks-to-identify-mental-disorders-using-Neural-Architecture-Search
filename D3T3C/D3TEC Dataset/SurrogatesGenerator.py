@@ -517,6 +517,8 @@ class BuildPyTorchModel(nn.Module):
         layers = []
         in_channels = input_shape[0]  # Canales de entrada (ej: 1 para espectrogramas)
 
+        self.linear_layers = []  # Se almacenarán aquí las capas Dense (Linear) que se definirán en forward
+
         for layer in model_dict['layers']:
             if layer['type'] == 'Conv2D':
                 layers.append(nn.Conv2d(in_channels=in_channels, out_channels=layer['filters'], kernel_size=3, stride=layer['strides'], padding=1))
@@ -534,7 +536,6 @@ class BuildPyTorchModel(nn.Module):
                 layers.append(nn.MaxPool2d(kernel_size=2, stride=layer['strides'], padding=1))
 
             elif layer['type'] == 'Flatten':
-                # 📌 Ajuste de Conv2D(1x1) para compatibilidad con Fully Connected (Dense)
                 if self.verbose:
                     print(f"📌 Sustituyendo Flatten con Conv2D(1x1) para compatibilidad con Dense (Canales: {in_channels})")
                 layers.append(nn.Conv2d(in_channels=in_channels, out_channels=64, kernel_size=1))  
@@ -543,9 +544,8 @@ class BuildPyTorchModel(nn.Module):
                 layers.append(nn.Flatten())  # Aplanar después de la conversión
 
             elif layer['type'] == 'Dense':
-                # ⚠️ **Calculando dinámicamente `in_features` antes de Linear**
-                layers.append(nn.Linear(in_features=None, out_features=layer['units']))  # `in_features` se definirá en `forward`
-                layers.append(nn.ReLU() if layer['activation'] == "relu" else nn.LeakyReLU())
+                # ⚠️ **No creamos `Linear` todavía, lo haremos en `forward`**
+                self.linear_layers.append((layer['units'], layer['activation']))  # Guardamos el número de neuronas
 
             elif layer['type'] == 'Dropout':
                 layers.append(nn.Dropout(p=layer['rate']))
@@ -553,7 +553,7 @@ class BuildPyTorchModel(nn.Module):
             elif layer['type'] == 'DontCare':
                 layers.append(DontCareLayer())  # No afecta la estructura del modelo
 
-        self.model = nn.Sequential(*layers)
+        self.feature_extractor = nn.Sequential(*layers)  # Solo capas convolucionales
 
     def forward(self, x):
         if self.verbose:
@@ -571,26 +571,29 @@ class BuildPyTorchModel(nn.Module):
             if self.verbose:
                 print(f"📌 Input corregido a: {x.shape}")
 
-        for i, module in enumerate(self.model):
-            if self.verbose:
-                print(f"📌 Procesando capa {i}: {module.__class__.__name__}")
-                print(f"   🔹 Input antes de la capa: {x.shape}")
+        x = self.feature_extractor(x)
 
-            # 📌 Ajustar `in_features` en `Linear` dinámicamente
-            if isinstance(module, nn.Linear) and module.in_features is None:
-                in_features = x.shape[1]
-                self.model[i] = nn.Linear(in_features=in_features, out_features=module.out_features).to(x.device)
-                module = self.model[i]
-                if self.verbose:
-                    print(f"⚠️ WARNING: Ajustando `in_features` en Linear: {in_features} → {module.out_features}")
+        if self.verbose:
+            print(f"📌 Salida después de la extracción de características: {x.shape}")
 
-            x = module(x)  # Aplicar la capa
+        # 📌 Definir capas lineales de forma dinámica
+        if not hasattr(self, "fully_connected"):
+            in_features = x.shape[1]  # Obtener tamaño correcto después de Flatten
+            layers = []
+            for units, activation in self.linear_layers:
+                layers.append(nn.Linear(in_features, units))
+                layers.append(nn.ReLU() if activation == "relu" else nn.LeakyReLU())
+                in_features = units  # Actualizar para la siguiente capa
 
-            if self.verbose:
-                print(f"   🔹 Output después de la capa: {x.shape}")
+            self.fully_connected = nn.Sequential(*layers).to(x.device)
+
+        x = self.fully_connected(x)
+
+        if self.verbose:
+            print(f"📌 Salida final del modelo: {x.shape}")
 
         return x
-
+s
 
 # %% [markdown]
 # # Testing random generated architectures
@@ -1119,6 +1122,21 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
     print("✅ Entrenamiento completado con éxito.")
 
 
+from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
+
+# 📌 Función para calcular F1-score, precisión, recall y especificidad
+def calculate_metrics(y_true, y_pred):
+    precision = precision_score(y_true, y_pred, zero_division=0)
+    recall = recall_score(y_true, y_pred, zero_division=0)
+    f1 = f1_score(y_true, y_pred, zero_division=0)
+
+    # 📌 Calcular la especificidad
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+    specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
+
+    return precision, recall, f1, specificity
+
+
 # 📌 Entrenar y evaluar modelo
 def train_and_evaluate_model(model, train_loader, val_loader, test_loader, config):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -1133,14 +1151,13 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
         running_loss = 0.0
 
         for inputs, labels in train_loader:
-            inputs, labels = inputs.to(device), labels.to(device)
+            inputs, labels = inputs.to(device), labels.float().to(device)  # 🔹 Asegurar que `labels` sea float
 
             optimizer.zero_grad()
 
-            labels = labels.float().to(device)  # 🔹 Asegurar que `labels` sea float
             outputs = model(inputs).squeeze()  # 🔹 Convertir [batch_size, 1] → [batch_size]
-
             loss = criterion(outputs, labels)  # 📌 Ahora las formas coinciden
+
             loss.backward()
             optimizer.step()
 
@@ -1151,28 +1168,23 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
     print("📌 Entrenamiento finalizado. Evaluando en test...")
 
     model.eval()
-    correct = 0
-    total = 0
     y_true, y_pred = [], []
 
     with torch.no_grad():
         for inputs, labels in test_loader:
-            inputs, labels = inputs.to(device), labels.to(device)
-            labels = labels.float().to(device)
+            inputs, labels = inputs.to(device), labels.float().to(device)
 
-            outputs = model(inputs).squeeze()  # 📌 Convertir [batch_size, 1] → [batch_size]
+            outputs = model(inputs).squeeze()
             predictions = (torch.sigmoid(outputs) > 0.5).int()
-            predicted  = (torch.sigmoid(outputs) > 0.5).int()
 
             y_true.extend(labels.cpu().numpy())
-            y_pred.extend(predicted.cpu().numpy())
-            #correct += (predictions == labels.int()).sum().item()
-            #total += labels.size(0)
+            y_pred.extend(predictions.cpu().numpy())
 
     accuracy = (np.array(y_true) == np.array(y_pred)).mean()
-    precision, recall, f1 = calculate_f1_score(y_true, y_pred)
+    precision, recall, f1, specificity = calculate_metrics(y_true, y_pred)
 
-    return [accuracy, precision, recall, f1]
+    return [running_loss / len(train_loader), accuracy, precision, recall, f1, specificity]
+
 
 
     return accuracy
