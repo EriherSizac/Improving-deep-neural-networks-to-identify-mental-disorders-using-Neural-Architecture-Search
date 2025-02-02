@@ -1087,7 +1087,7 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
     test_loader = DataLoader(TensorDataset(X_test.unsqueeze(1), Y_test), batch_size=batch_size)
 
     print("📌 Mostrando dos espectrogramas de ejemplo...")
-    #show_first_two_spectrograms(dataset)
+    show_first_two_spectrograms(dataset)
 
     # 🔹 Obtener `input_shape` automáticamente del primer batch
     example_batch, _ = next(iter(train_loader))
@@ -1140,6 +1140,7 @@ def calculate_metrics(y_true, y_pred):
 # 📌 Entrenar y evaluar modelo
 def train_and_evaluate_model(model, train_loader, val_loader, test_loader, config):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"📌 Entrenando en: {device}")
     model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.BCEWithLogitsLoss()
@@ -1209,7 +1210,10 @@ def load_architectures_from_csv(csv_path):
     return architectures.tolist()
 
 train_models("EncodedChromosomes_V3.csv", "Dataset.csv", "./SM-27",
-             save_file="EncodedChromosomes_V3_results.csv", verbose=False, batch_size=1)
+             save_file="EncodedChromosomes_V3_results.csv", verbose=False)
+
+
+# %%
 
 
 # %% [markdown]
