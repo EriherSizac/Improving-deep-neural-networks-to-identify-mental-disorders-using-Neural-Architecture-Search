@@ -723,8 +723,8 @@ def map_to_architecture_params(latin_hypercube_sample):
     return {}
 
 # Ejecutar validación y guardado en CSV
-if validate_latin_hypercube(num_models=5000):
-    save_encoded_models_to_csv(num_models=5000, filename="EncodedChromosomes_V3.csv")
+#if validate_latin_hypercube(num_models=5000):
+    #save_encoded_models_to_csv(num_models=5000, filename="EncodedChromosomes_V3.csv")
 
 
 # %%
@@ -1161,7 +1161,8 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
 
             outputs = model(inputs).squeeze()  # 📌 Convertir [batch_size, 1] → [batch_size]
             predictions = (torch.sigmoid(outputs) > 0.5).int()
-            _, predicted = torch.max(outputs, 1)
+            _, predicted  = (torch.sigmoid(outputs) > 0.5).int()
+
             y_true.extend(labels.cpu().numpy())
             y_pred.extend(predicted.cpu().numpy())
             #correct += (predictions == labels.int()).sum().item()
