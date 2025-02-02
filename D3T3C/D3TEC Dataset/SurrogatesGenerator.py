@@ -593,7 +593,7 @@ class BuildPyTorchModel(nn.Module):
             print(f"📌 Salida final del modelo: {x.shape}")
 
         return x
-s
+
 
 # %% [markdown]
 # # Testing random generated architectures
