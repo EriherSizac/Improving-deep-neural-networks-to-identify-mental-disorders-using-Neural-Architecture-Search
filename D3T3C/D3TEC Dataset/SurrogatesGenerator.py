@@ -1209,7 +1209,7 @@ def load_architectures_from_csv(csv_path):
     return architectures.tolist()
 
 train_models("EncodedChromosomes_V3.csv", "Dataset.csv", "./SM-27",
-             save_file="EncodedChromosomes_V3_results.csv", verbose=False)
+             save_file="EncodedChromosomes_V3_results.csv", verbose=False, batch_size=10)
 
 
 # %% [markdown]
