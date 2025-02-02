@@ -1161,7 +1161,7 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
 
             outputs = model(inputs).squeeze()  # 📌 Convertir [batch_size, 1] → [batch_size]
             predictions = (torch.sigmoid(outputs) > 0.5).int()
-            _, predicted  = (torch.sigmoid(outputs) > 0.5).int()
+            predicted  = (torch.sigmoid(outputs) > 0.5).int()
 
             y_true.extend(labels.cpu().numpy())
             y_pred.extend(predicted.cpu().numpy())
