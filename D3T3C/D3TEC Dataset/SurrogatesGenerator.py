@@ -507,7 +507,7 @@ import torch
 import torch.nn as nn
 
 class BuildPyTorchModel(nn.Module):
-    def __init__(self, model_dict, input_shape=(3, 28, 28), verbose=False):
+    def __init__(self, model_dict, input_shape=(1, 64, 552), verbose=False):
         """
         Construye un modelo de PyTorch a partir de un diccionario JSON expandido.
         """
@@ -515,7 +515,7 @@ class BuildPyTorchModel(nn.Module):
         self.verbose = verbose  # Agregamos el parámetro verbose
         model_dict = decode_model_architecture(model_dict)
         layers = []
-        in_channels = input_shape[0]  # Canales de entrada (ej: 3 para imágenes RGB)
+        in_channels = input_shape[0]  # Canales de entrada (ej: 1 para espectrogramas)
 
         for layer in model_dict['layers']:
             if layer['type'] == 'Conv2D':
@@ -543,9 +543,9 @@ class BuildPyTorchModel(nn.Module):
                 layers.append(nn.Flatten())  # Aplanar después de la conversión
 
             elif layer['type'] == 'Dense':
-                layers.append(nn.Linear(in_features=in_channels * 18 * 140, out_features=layer['units']))  # 📌 Asegurar compatibilidad con input dinámico
+                # ⚠️ **Calculando dinámicamente `in_features` antes de Linear**
+                layers.append(nn.Linear(in_features=None, out_features=layer['units']))  # `in_features` se definirá en `forward`
                 layers.append(nn.ReLU() if layer['activation'] == "relu" else nn.LeakyReLU())
-                in_channels = layer['units']  # Actualizar el tamaño de la salida
 
             elif layer['type'] == 'Dropout':
                 layers.append(nn.Dropout(p=layer['rate']))
@@ -571,18 +571,18 @@ class BuildPyTorchModel(nn.Module):
             if self.verbose:
                 print(f"📌 Input corregido a: {x.shape}")
 
-        for module in self.model:
+        for i, module in enumerate(self.model):
             if self.verbose:
-                print(f"📌 Procesando capa: {module.__class__.__name__}")
+                print(f"📌 Procesando capa {i}: {module.__class__.__name__}")
                 print(f"   🔹 Input antes de la capa: {x.shape}")
 
-            # 📌 Si es BatchNorm2d, verificar y ajustar el número de canales dinámicamente
-            if isinstance(module, nn.BatchNorm2d):
-                num_channels = x.shape[1]  # Obtener canales actuales
-                if module.num_features != num_channels:
-                    if self.verbose:
-                        print(f"⚠️ WARNING: BatchNorm2d esperaba {module.num_features} canales, pero recibió {num_channels}. Ajustando...")
-                    module = nn.BatchNorm2d(num_channels).to(x.device)  # Crear una nueva instancia con el tamaño correcto
+            # 📌 Ajustar `in_features` en `Linear` dinámicamente
+            if isinstance(module, nn.Linear) and module.in_features is None:
+                in_features = x.shape[1]
+                self.model[i] = nn.Linear(in_features=in_features, out_features=module.out_features).to(x.device)
+                module = self.model[i]
+                if self.verbose:
+                    print(f"⚠️ WARNING: Ajustando `in_features` en Linear: {in_features} → {module.out_features}")
 
             x = module(x)  # Aplicar la capa
 
@@ -1028,7 +1028,8 @@ def save_results_to_csv(file_path, architecture, results):
 
 
 
-def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batch_size=32, save_file="results.csv"):
+def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batch_size=32, save_file="results.csv",
+                 verbose=False):
     print("📌 Iniciando entrenamiento de modelos...")
 
     config = Config(epochs=epochs)
@@ -1103,7 +1104,7 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
         print(f"\n🚀 Evaluando arquitectura {i + 1}/{len(architectures)}...")
 
         # 📌 Construcción del modelo
-        model = BuildPyTorchModel(architecture, input_shape=input_shape)
+        model = BuildPyTorchModel(architecture, input_shape=input_shape, verbose=verbose)
         print("📌 Modelo construido. Iniciando entrenamiento...")
 
         # 📌 Entrenar y evaluar modelo
@@ -1196,7 +1197,7 @@ def load_architectures_from_csv(csv_path):
     return architectures.tolist()
 
 train_models("EncodedChromosomes_V3.csv", "Dataset.csv", "./SM-27",
-             save_file="EncodedChromosomes_V3_results.csv")
+             save_file="EncodedChromosomes_V3_results.csv", verbose=False)
 
 
 # %% [markdown]
