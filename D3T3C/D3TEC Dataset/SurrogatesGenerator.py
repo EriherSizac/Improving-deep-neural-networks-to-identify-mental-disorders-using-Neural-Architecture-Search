@@ -1087,7 +1087,7 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
     test_loader = DataLoader(TensorDataset(X_test.unsqueeze(1), Y_test), batch_size=batch_size)
 
     print("📌 Mostrando dos espectrogramas de ejemplo...")
-    show_first_two_spectrograms(dataset)
+    #show_first_two_spectrograms(dataset)
 
     # 🔹 Obtener `input_shape` automáticamente del primer batch
     example_batch, _ = next(iter(train_loader))
