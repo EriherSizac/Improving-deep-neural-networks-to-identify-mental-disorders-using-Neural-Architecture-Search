@@ -1153,7 +1153,7 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
 
 
 # Forzar el uso de CPU
-    device = torch.device("cpu")
+   # device = torch.device("cpu")
     print(f"📌 Entrenando en: {device}")
     model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
@@ -1195,7 +1195,8 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
             predictions = (torch.sigmoid(outputs) > 0.5).int()
 
             y_true.extend(labels.cpu().numpy())
-            y_pred.extend(predictions.cpu().numpy())
+            y_pred.extend([predictions.cpu().numpy().item()])  # Convertir escalar en lista
+
 
     accuracy = (np.array(y_true) == np.array(y_pred)).mean()
     precision, recall, f1, specificity = calculate_metrics(y_true, y_pred)
