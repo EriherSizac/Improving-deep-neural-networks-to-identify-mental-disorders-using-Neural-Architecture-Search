@@ -8,6 +8,9 @@ import tensorflow as tf
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import sys
+sys.stdout = open('/dev/null', 'w')  # Redirigir la salida a /dev/null
+
 
 #torch.set_num_threads(1)  # Prueba con 4, 2 o 1
 #torch.set_num_interop_threads(1)
