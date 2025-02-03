@@ -1171,6 +1171,8 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
             optimizer.zero_grad()
 
             outputs = model(inputs).squeeze()  # 🔹 Convertir [batch_size, 1] → [batch_size]
+            outputs = outputs.unsqueeze(0)  # Convierte un escalar en tensor de 1 elemento
+
             loss = criterion(outputs, labels)  # 📌 Ahora las formas coinciden
 
             loss.backward()
