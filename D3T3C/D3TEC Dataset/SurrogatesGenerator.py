@@ -1153,7 +1153,7 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
 
 
 # Forzar el uso de CPU
-   # device = torch.device("cpu")
+    device = torch.device("cpu")
     print(f"📌 Entrenando en: {device}")
     model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
