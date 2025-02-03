@@ -895,7 +895,7 @@ import json
 
 # Configuración de parámetros
 class Config:
-    def __init__(self, epochs=20, window_size=2, sample_rate=None, checkpoint_file="checkpoint.json"):
+    def __init__(self, epochs=20, window_size=5, sample_rate=None, checkpoint_file="checkpoint.json"):
         self.epochs = epochs
         self.window_size = window_size
         self.sample_rate = sample_rate
@@ -1153,9 +1153,14 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
 
 
 # Forzar el uso de CPU
-    device = torch.device("cpu")
+    #device = torch.device("cpu")
     print(f"📌 Entrenando en: {device}")
     model = model.to(device)
+    torch.cuda.empty_cache()
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    torch.cuda.memory_allocated(device)
+
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.BCEWithLogitsLoss()
 
