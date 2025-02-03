@@ -12,6 +12,8 @@ import torch.nn.functional as F
 torch.set_num_threads(1)  # Prueba con 4, 2 o 1
 torch.set_num_interop_threads(1)
 
+import torch.multiprocessing as mp
+mp.set_start_method('spawn', force=True)
 
 # %%
 # Opciones de decodificación para otros parámetros
@@ -1085,9 +1087,9 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
 
     # 🔹 Crear DataLoaders sin shuffle (manteniendo el orden para checkpoints)
     print("📌 Creando DataLoaders...")
-    train_loader = DataLoader(TensorDataset(X_train.unsqueeze(1), Y_train), batch_size=batch_size,num_workers=0)
-    val_loader = DataLoader(TensorDataset(X_val.unsqueeze(1), Y_val), batch_size=batch_size, num_workers=0)
-    test_loader = DataLoader(TensorDataset(X_test.unsqueeze(1), Y_test), batch_size=batch_size,num_workers=0)
+    train_loader = DataLoader(TensorDataset(X_train.unsqueeze(1), Y_train), batch_size=batch_size,num_workers=0,pin_memory=False, persistent_workers=False)
+    val_loader = DataLoader(TensorDataset(X_val.unsqueeze(1), Y_val), batch_size=batch_size, num_workers=0,pin_memory=False, persistent_workers=False)
+    test_loader = DataLoader(TensorDataset(X_test.unsqueeze(1), Y_test), batch_size=batch_size,num_workers=0,pin_memory=False, persistent_workers=False)
 
     print("📌 Mostrando dos espectrogramas de ejemplo...")
     show_first_two_spectrograms(dataset)
