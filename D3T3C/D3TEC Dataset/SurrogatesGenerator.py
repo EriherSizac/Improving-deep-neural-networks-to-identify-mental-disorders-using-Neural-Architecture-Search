@@ -9,11 +9,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-torch.set_num_threads(1)  # Prueba con 4, 2 o 1
-torch.set_num_interop_threads(1)
+#torch.set_num_threads(1)  # Prueba con 4, 2 o 1
+#torch.set_num_interop_threads(1)
 
-import torch.multiprocessing as mp
-mp.set_start_method('spawn', force=True)
+#import torch.multiprocessing as mp
+#mp.set_start_method('spawn', force=True)
 
 # %%
 # Opciones de decodificación para otros parámetros
@@ -1152,7 +1152,7 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.BCEWithLogitsLoss()
 
-    print("📌 Iniciando entrenamiento...")
+    #print("📌 Iniciando entrenamiento...")
 
     for epoch in range(config.epochs):
         model.train()
