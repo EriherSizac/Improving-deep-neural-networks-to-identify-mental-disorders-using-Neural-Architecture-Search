@@ -9,6 +9,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+torch.set_num_threads(4)  # Prueba con 4, 2 o 1
+
 
 # %%
 # Opciones de decodificación para otros parámetros
@@ -1108,6 +1110,8 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
 
         # 📌 Construcción del modelo
         model = BuildPyTorchModel(architecture, input_shape=input_shape, verbose=verbose)
+        model.to(dtype=torch.float32)  # Forzar que use float32 en vez de bfloat16
+
         print("📌 Modelo construido. Iniciando entrenamiento...")
 
         # 📌 Entrenar y evaluar modelo
