@@ -1150,6 +1150,10 @@ def calculate_metrics(y_true, y_pred):
 # 📌 Entrenar y evaluar modelo
 def train_and_evaluate_model(model, train_loader, val_loader, test_loader, config):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+# Forzar el uso de CPU
+    device = torch.device("cpu")
     print(f"📌 Entrenando en: {device}")
     model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
