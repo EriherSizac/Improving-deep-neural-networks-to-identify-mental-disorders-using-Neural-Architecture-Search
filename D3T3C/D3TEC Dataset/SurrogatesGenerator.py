@@ -10,6 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 torch.set_num_threads(1)  # Prueba con 4, 2 o 1
+torch.set_num_interop_threads(1)
 
 
 # %%
