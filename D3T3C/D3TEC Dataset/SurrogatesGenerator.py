@@ -11,6 +11,10 @@ import torch.nn.functional as F
 import sys
 #sys.stdout = open('/dev/null', 'w')  # Redirigir la salida a /dev/null
 
+import torch.multiprocessing as mp
+
+if __name__ == "__main__":
+    mp.set_start_method('spawn', force=True)  # 🔹 Usa 'spawn' en vez de 'fork'
 
 #torch.set_num_threads(1)  # Prueba con 4, 2 o 1
 #torch.set_num_interop_threads(1)
@@ -1039,7 +1043,7 @@ def save_results_to_csv(file_path, architecture, results):
 
 
 
-def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batch_size=32, save_file="results.csv",
+def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batch_size= 1, save_file="results.csv",
                  verbose=False):
     print("📌 Iniciando entrenamiento de modelos...")
 
@@ -1090,9 +1094,9 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
 
     # 🔹 Crear DataLoaders sin shuffle (manteniendo el orden para checkpoints)
     print("📌 Creando DataLoaders...")
-    train_loader = DataLoader(TensorDataset(X_train.unsqueeze(1), Y_train), batch_size=batch_size,num_workers=0,pin_memory=True, persistent_workers=False)
-    val_loader = DataLoader(TensorDataset(X_val.unsqueeze(1), Y_val), batch_size=batch_size, num_workers=0,pin_memory=True, persistent_workers=False)
-    test_loader = DataLoader(TensorDataset(X_test.unsqueeze(1), Y_test), batch_size=batch_size,num_workers=0,pin_memory=True, persistent_workers=False)
+    train_loader = DataLoader(TensorDataset(X_train.unsqueeze(1), Y_train), batch_size=batch_size,num_workers=0,pin_memory=False, persistent_workers=False)
+    val_loader = DataLoader(TensorDataset(X_val.unsqueeze(1), Y_val), batch_size=batch_size, num_workers=0,pin_memory=False, persistent_workers=False)
+    test_loader = DataLoader(TensorDataset(X_test.unsqueeze(1), Y_test), batch_size=batch_size,num_workers=0,pin_memory=False, persistent_workers=False)
 
     print("📌 Mostrando dos espectrogramas de ejemplo...")
     show_first_two_spectrograms(dataset)
@@ -1116,10 +1120,8 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
 
         # 📌 Construcción del modelo
         model = BuildPyTorchModel(architecture, input_shape=input_shape, verbose=verbose)
-        if torch.cuda.device_count() > 1:
-            print(f"🚀 Usando {torch.cuda.device_count()} GPUs con DataParallel")
-            model = nn.DataParallel(model)
-            print('🚀 Modelo cargado en DataParallel')
+        
+       
         #model.to(dtype=torch.float32)  # Forzar que use float32 en vez de bfloat16
 
         print("📌 Modelo construido. Iniciando entrenamiento...")
@@ -1160,6 +1162,10 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
     #device = torch.device("cpu")
     print(f"📌 Entrenando en: {device}")
     model = model.to(device)
+    if torch.cuda.device_count() > 1:
+        print(f"🚀 Usando {torch.cuda.device_count()} GPUs con DataParallel")
+        model = nn.DataParallel(model)
+        print('🚀 Modelo cargado en DataParallel')
  
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
