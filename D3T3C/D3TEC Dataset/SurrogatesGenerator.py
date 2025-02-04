@@ -1090,9 +1090,9 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
 
     # 🔹 Crear DataLoaders sin shuffle (manteniendo el orden para checkpoints)
     print("📌 Creando DataLoaders...")
-    train_loader = DataLoader(TensorDataset(X_train.unsqueeze(1), Y_train), batch_size=batch_size,num_workers=0,pin_memory=False, persistent_workers=False)
-    val_loader = DataLoader(TensorDataset(X_val.unsqueeze(1), Y_val), batch_size=batch_size, num_workers=0,pin_memory=False, persistent_workers=False)
-    test_loader = DataLoader(TensorDataset(X_test.unsqueeze(1), Y_test), batch_size=batch_size,num_workers=0,pin_memory=False, persistent_workers=False)
+    train_loader = DataLoader(TensorDataset(X_train.unsqueeze(1), Y_train), batch_size=batch_size,num_workers=0,pin_memory=True, persistent_workers=False)
+    val_loader = DataLoader(TensorDataset(X_val.unsqueeze(1), Y_val), batch_size=batch_size, num_workers=0,pin_memory=True, persistent_workers=False)
+    test_loader = DataLoader(TensorDataset(X_test.unsqueeze(1), Y_test), batch_size=batch_size,num_workers=0,pin_memory=True, persistent_workers=False)
 
     print("📌 Mostrando dos espectrogramas de ejemplo...")
     show_first_two_spectrograms(dataset)
@@ -1159,10 +1159,10 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
     #device = torch.device("cpu")
     print(f"📌 Entrenando en: {device}")
     model = model.to(device)
-    torch.cuda.empty_cache()
+ 
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
-    torch.cuda.memory_allocated(device)
+ 
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.BCEWithLogitsLoss()
