@@ -1118,7 +1118,7 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
         model = BuildPyTorchModel(architecture, input_shape=input_shape, verbose=verbose)
         if torch.cuda.device_count() > 1:
             print(f"🚀 Usando {torch.cuda.device_count()} GPUs con DataParallel")
-            #model = nn.DataParallel(model)
+            model = nn.DataParallel(model)
             print('🚀 Modelo cargado en DataParallel')
         #model.to(dtype=torch.float32)  # Forzar que use float32 en vez de bfloat16
 
