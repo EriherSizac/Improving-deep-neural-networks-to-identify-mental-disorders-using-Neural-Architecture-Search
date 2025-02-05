@@ -1157,48 +1157,49 @@ def calculate_metrics(y_true, y_pred):
 def train_and_evaluate_model(model, train_loader, val_loader, test_loader, config):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-
-# Forzar el uso de CPU
-    #device = torch.device("cpu")
     print(f"📌 Entrenando en: {device}")
+    
+    # 🔹 Mover modelo a la GPU antes de aplicar DataParallel
     model = model.to(device)
+
+    # 🔹 Si hay múltiples GPUs, usar DataParallel
     if torch.cuda.device_count() > 1:
         print(f"🚀 Usando {torch.cuda.device_count()} GPUs con DataParallel")
         model = nn.DataParallel(model)
-        print('🚀 Modelo cargado en DataParallel')
- 
+    
+    # 🔹 Optimización de cuDNN
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
- 
 
+    # 🔹 Definir optimizador y función de pérdida
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.BCEWithLogitsLoss()
 
-    #print("📌 Iniciando entrenamiento...")
-
+    # 🔹 Entrenamiento del modelo
     for epoch in range(config.epochs):
         model.train()
         running_loss = 0.0
 
         for inputs, labels in train_loader:
-            inputs, labels = inputs.to(device), labels.float().to(device)  # 🔹 Asegurar que `labels` sea float
+            # 🔹 Mover datos a la GPU
+            inputs, labels = inputs.to(device), labels.float().to(device)
 
             optimizer.zero_grad()
 
-            outputs = model(inputs).squeeze()  # 🔹 Convertir [batch_size, 1] → [batch_size]
-            outputs = outputs.unsqueeze(0)  # Convierte un escalar en tensor de 1 elemento
-
-            loss = criterion(outputs, labels)  # 📌 Ahora las formas coinciden
+            # 🔹 Pasar los datos por el modelo
+            outputs = model(inputs).squeeze()  # 🔹 Asegurar que mantiene batch-size
+            loss = criterion(outputs, labels)
 
             loss.backward()
             optimizer.step()
 
             running_loss += loss.item()
 
-        print(f"🔹 Epoch [{epoch+1}/{config.epochs}] - Loss: {running_loss/len(train_loader):.4f}")
+        print(f"🔹 Epoch [{epoch+1}/{config.epochs}] - Loss: {running_loss / len(train_loader):.4f}")
 
     print("📌 Entrenamiento finalizado. Evaluando en test...")
 
+    # 🔹 Evaluación del modelo
     model.eval()
     y_true, y_pred = [], []
 
@@ -1209,18 +1210,16 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
             outputs = model(inputs).squeeze()
             predictions = (torch.sigmoid(outputs) > 0.5).int()
 
-            y_true.extend(labels.cpu().numpy())
-            y_pred.extend([predictions.cpu().numpy().item()])  # Convertir escalar en lista
+            # 🔹 Convertir a listas para métricas
+            y_true.extend(labels.cpu().numpy().tolist())
+            y_pred.extend(predictions.cpu().numpy().tolist())
 
-
+    # 🔹 Calcular métricas
     accuracy = (np.array(y_true) == np.array(y_pred)).mean()
     precision, recall, f1, specificity = calculate_metrics(y_true, y_pred)
 
     return [running_loss / len(train_loader), accuracy, precision, recall, f1, specificity]
 
-
-
-    return accuracy
 
 # 📌 Calcular métricas
 def calculate_f1_score(y_true, y_pred):
