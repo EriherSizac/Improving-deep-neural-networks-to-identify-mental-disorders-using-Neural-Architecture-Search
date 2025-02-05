@@ -15,7 +15,10 @@ import torch.multiprocessing as mp
 
 if __name__ == "__main__":
     mp.set_start_method('spawn', force=True)  # 🔹 Usa 'spawn' en vez de 'fork'
-
+    
+    # 🔹 Optimización de cuDNN
+torch.backends.cudnn.benchmark = True
+torch.backends.cudnn.deterministic = False
 #torch.set_num_threads(1)  # Prueba con 4, 2 o 1
 #torch.set_num_interop_threads(1)
 
@@ -1125,6 +1128,8 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
         #model.to(dtype=torch.float32)  # Forzar que use float32 en vez de bfloat16
 
         print("📌 Modelo construido. Iniciando entrenamiento...")
+        torch.cuda.empty_cache()
+        torch.cuda.memory_allocated()
 
         # 📌 Entrenar y evaluar modelo
         results = train_and_evaluate_model(model, train_loader, val_loader, test_loader, config)
@@ -1166,10 +1171,8 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
     if torch.cuda.device_count() > 1:
         print(f"🚀 Usando {torch.cuda.device_count()} GPUs con DataParallel")
         model = nn.DataParallel(model)
-    
-    # 🔹 Optimización de cuDNN
-    torch.backends.cudnn.benchmark = False
-    torch.backends.cudnn.deterministic = True
+
+
 
     # 🔹 Definir optimizador y función de pérdida
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
