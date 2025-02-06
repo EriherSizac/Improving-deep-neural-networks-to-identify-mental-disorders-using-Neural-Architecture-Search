@@ -2,9 +2,6 @@
 # # ERpncoding
 
 # %%
-from tensorflow.keras import Sequential
-from tensorflow.keras.layers import Layer,  Softmax, Multiply, Add, Conv2D, BatchNormalization, MaxPooling2D, Flatten, Dense, Dropout, DepthwiseConv2D
-import tensorflow as tf
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

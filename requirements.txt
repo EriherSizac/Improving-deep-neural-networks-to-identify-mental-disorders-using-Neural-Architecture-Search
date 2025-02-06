@@ -1,0 +1,9 @@
+tensorflow
+torch
+pyDOE2
+scikit-learn
+pandas
+torchaudio
+matplotlib
+tqdm
+json
