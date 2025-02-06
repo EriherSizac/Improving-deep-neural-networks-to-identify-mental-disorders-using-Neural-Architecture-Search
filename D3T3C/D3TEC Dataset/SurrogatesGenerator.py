@@ -1034,7 +1034,7 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
                  verbose=False):
     print("📌 Iniciando entrenamiento de modelos...")
 
-    config = Config(epochs=epochs, window_size=30)
+    config = Config(epochs=epochs, window_size=2)
     checkpoint = load_checkpoint(config.checkpoint_file)
 
     print("📌 Cargando y procesando audios en tiempo de ejecución...")
