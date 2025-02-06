@@ -1178,7 +1178,7 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
             print(f"Labels shape: {labels.shape}")
 
             # 🔹 Pasar los datos por el modelo
-            outputs = model(inputs).squeeze()  # 🔹 Asegurar que mantiene batch-size
+            outputs = model(inputs)
             
             # Debugging prints
             print(f"Outputs shape: {outputs.shape}")
