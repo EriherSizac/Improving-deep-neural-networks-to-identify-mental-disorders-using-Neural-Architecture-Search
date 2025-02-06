@@ -1178,7 +1178,8 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
             print(f"Labels shape: {labels.shape}")
 
             # 🔹 Pasar los datos por el modelo
-            outputs = model(inputs)
+            # Flatten the outputs to match the labels shape
+            outputs = outputs.view(-1)
             
             # Debugging prints
             print(f"Outputs shape: {outputs.shape}")
