@@ -1173,8 +1173,16 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
 
             optimizer.zero_grad()
 
+            # Debugging prints
+            print(f"Inputs shape: {inputs.shape}")
+            print(f"Labels shape: {labels.shape}")
+
             # 🔹 Pasar los datos por el modelo
             outputs = model(inputs).squeeze()  # 🔹 Asegurar que mantiene batch-size
+            
+            # Debugging prints
+            print(f"Outputs shape: {outputs.shape}")
+
             loss = criterion(outputs, labels)
 
             loss.backward()
@@ -1232,4 +1240,3 @@ train_models("EncodedChromosomes_V3.csv", "Dataset.csv", "./SM-27",
 
 
 # %%
-
