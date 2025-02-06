@@ -8,10 +8,25 @@ import tensorflow as tf
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import csv
+import numpy as np
+from pyDOE2 import lhs
 import sys
+from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
 #sys.stdout = open('/dev/null', 'w')  # Redirigir la salida a /dev/null
-
+import os
+import pandas as pd
+import torchaudio
+import torch.optim as optim
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from tqdm import tqdm
+from torch.utils.data import TensorDataset, DataLoader,Dataset
+import json
 import torch.multiprocessing as mp
+import torchaudio.transforms as T
+
+torch.cuda.memory_summary()
 
 if __name__ == "__main__":
     mp.set_start_method('spawn', force=True)  # 🔹 Usa 'spawn' en vez de 'fork'
@@ -118,9 +133,7 @@ def decode_layer_params(encoded_params):
 # 
 
 # %%
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+
 
 
 class SelfAttention(nn.Module):
@@ -256,7 +269,7 @@ def encode_model_architecture(model_dict, max_alleles=48):
 
 
 # %%
-import random
+
 
 def fixArch(encoded_model, verbose=False):
     """
@@ -517,9 +530,7 @@ def select_group_for_repetition(layers, repetition_layers):
     return valid_layers
 
 
-# %%
-import torch
-import torch.nn as nn
+
 
 class BuildPyTorchModel(nn.Module):
     def __init__(self, model_dict, input_shape=(1, 64, 552), verbose=False):
@@ -618,9 +629,7 @@ class BuildPyTorchModel(nn.Module):
 # 
 
 # %%
-import csv
-import numpy as np
-from pyDOE2 import lhs
+
 
 # Función para generar un hipercubo latino con rangos normalizados [0, 1]
 def generate_latin_hypercube_samples(num_samples, dimensions):
@@ -746,11 +755,7 @@ def map_to_architecture_params(latin_hypercube_sample):
 
 
 # %%
-import torch
-import torchaudio
-import torchaudio.transforms as T
-import matplotlib.pyplot as plt
-import numpy as np
+
 
 def load_audio_and_split(file_path, segment_duration=2.0):
     """
@@ -824,10 +829,7 @@ plot_spectrograms(audio_segments, sample_rate, n_mels=128)
 
 
 # %%
-import os
-import json
-import pandas as pd
-import torchaudio
+
 
 def create_balanced_subset(directory, dataset_csv, window_size, output_file):
     df = pd.read_csv(dataset_csv, usecols=['Participant_ID', 'PHQ-9 Score'])
@@ -882,22 +884,7 @@ def create_balanced_subset(directory, dataset_csv, window_size, output_file):
 # 
 
 # %%
-import os
-import numpy as np
-import pandas as pd
-import torchaudio
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import precision_score, recall_score, f1_score
-from tqdm import tqdm
-from torch.utils.data import Dataset, DataLoader
-    
-from torch.utils.data import TensorDataset, DataLoader
 
-import json
 
 
 # Configuración de parámetros
@@ -1017,7 +1004,7 @@ def load_checkpoint(file_path):
             return checkpoint
     return {"last_completed": -1}  # Si no hay checkpoint, empezar desde el inicio
 
-import csv
+
 
 # 📌 Función para guardar resultados en CSV
 def save_results_to_csv(file_path, architecture, results):
@@ -1143,7 +1130,7 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
     print("✅ Entrenamiento completado con éxito.")
 
 
-from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
+
 
 # 📌 Función para calcular F1-score, precisión, recall y especificidad
 def calculate_metrics(y_true, y_pred):
