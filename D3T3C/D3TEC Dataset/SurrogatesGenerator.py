@@ -1081,9 +1081,9 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
 
     # 🔹 Crear DataLoaders sin shuffle (manteniendo el orden para checkpoints)
     print("📌 Creando DataLoaders...")
-    train_loader = DataLoader(TensorDataset(X_train.unsqueeze(1), Y_train), batch_size=batch_size,num_workers=8,pin_memory=True, persistent_workers=True)
-    val_loader = DataLoader(TensorDataset(X_val.unsqueeze(1), Y_val), batch_size=batch_size, num_workers=8,pin_memory=True, persistent_workers=True)
-    test_loader = DataLoader(TensorDataset(X_test.unsqueeze(1), Y_test), batch_size=batch_size,num_workers=8,pin_memory=True, persistent_workers=True)
+    train_loader = DataLoader(TensorDataset(X_train.unsqueeze(1), Y_train), batch_size=batch_size,num_workers=4,pin_memory=True, persistent_workers=True)
+    val_loader = DataLoader(TensorDataset(X_val.unsqueeze(1), Y_val), batch_size=batch_size, num_workers=4,pin_memory=True, persistent_workers=True)
+    test_loader = DataLoader(TensorDataset(X_test.unsqueeze(1), Y_test), batch_size=batch_size,num_workers=4,pin_memory=True, persistent_workers=True)
 
     print("📌 Mostrando dos espectrogramas de ejemplo...")
     show_first_two_spectrograms(dataset)
