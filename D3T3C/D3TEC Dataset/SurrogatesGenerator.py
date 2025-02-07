@@ -576,17 +576,15 @@ class BuildPyTorchModel(nn.Module):
     def forward(self, x):
         if self.initial_conv is not None:
             x = self.initial_conv(x)
-        x = self.feature_extractor(x)
 
-        # 📌 🔹 Ajuste dinámico de `BatchNorm2d`
-        for module in self.feature_extractor:
+        for i, module in enumerate(self.feature_extractor):
             if isinstance(module, nn.BatchNorm2d):
                 num_channels = x.shape[1]  # Obtener canales actuales
                 if module.num_features != num_channels:
                     print(f"⚠️ WARNING: BatchNorm2d esperaba {module.num_features} canales, pero recibió {num_channels}. Ajustando...")
-                    module = nn.BatchNorm2d(num_channels).to(x.device)
+                    self.feature_extractor[i] = nn.BatchNorm2d(num_channels).to(x.device)  # 🔹 Reemplazar capa dinámicamente
 
-            x = module(x)
+            x = module(x)  # Aplicar la capa
 
         # Construcción dinámica de capas densas
         if not hasattr(self, "fully_connected"):
