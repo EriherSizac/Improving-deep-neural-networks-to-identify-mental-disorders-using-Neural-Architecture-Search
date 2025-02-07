@@ -25,8 +25,7 @@ import torchaudio.transforms as T
 
 torch.cuda.memory_summary()
 
-if __name__ == "__main__":
-    mp.set_start_method('spawn', force=True)  # 🔹 Usa 'spawn' en vez de 'fork'
+
     
     # 🔹 Optimización de cuDNN
 torch.backends.cudnn.benchmark = True
