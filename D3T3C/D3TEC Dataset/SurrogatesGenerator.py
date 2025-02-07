@@ -162,9 +162,9 @@ class SelfAttention(nn.Module):
         value = self.value_conv(x)
 
         # Reshape para atención
-        query = query.view(batch_size, self.attention_heads, self.filters // self.attention_heads, height * width)
-        key = key.view(batch_size, self.attention_heads, self.filters // self.attention_heads, height * width)
-        value = value.view(batch_size, self.attention_heads, self.filters // self.attention_heads, height * width)
+        query = query.reshape(batch_size, self.attention_heads, -1, height * width)
+        key = key.reshape(batch_size, self.attention_heads, -1, height * width)
+        value = value.reshape(batch_size, self.attention_heads, -1, height * width)
 
         # 🔹 Transponer `key` para que tenga dimensiones correctas
         attention_scores = torch.matmul(query, key.transpose(-2, -1)) / (key.shape[-1] ** 0.5)
