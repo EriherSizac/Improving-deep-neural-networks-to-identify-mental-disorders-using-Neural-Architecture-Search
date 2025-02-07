@@ -519,7 +519,6 @@ def select_group_for_repetition(layers, repetition_layers):
 
     return valid_layers
 
-
 class BuildPyTorchModel(nn.Module):
     def __init__(self, model_dict, input_shape=(1, 64, 552), verbose=False):
         """
@@ -559,6 +558,7 @@ class BuildPyTorchModel(nn.Module):
                                             activation=layer['activation'],
                                             verbose=self.verbose))
             elif layer['type'] == 'BatchNorm':
+                # Se inicia con BatchNorm2d, pero se ajustará en forward si es necesario.
                 layers.append(nn.BatchNorm2d(in_channels))
             elif layer['type'] == 'MaxPooling':
                 layers.append(nn.MaxPool2d(kernel_size=2, stride=layer['strides'], padding=1))
@@ -578,13 +578,22 @@ class BuildPyTorchModel(nn.Module):
             x = self.initial_conv(x)
 
         for i, module in enumerate(self.feature_extractor):
+            # Si el módulo es BatchNorm2d pero la entrada es 2D (después del Flatten)
             if isinstance(module, nn.BatchNorm2d):
-                num_channels = x.shape[1]  # Obtener canales actuales
-                if module.num_features != num_channels:
-                    print(f"⚠️ WARNING: BatchNorm2d esperaba {module.num_features} canales, pero recibió {num_channels}. Ajustando...")
-                    self.feature_extractor[i] = nn.BatchNorm2d(num_channels).to(x.device)  # 🔹 Reemplazar capa dinámicamente
-
-            x = module(x)  # Aplicar la capa
+                if x.dim() == 2:  # Es decir, (batch, features)
+                    num_features = x.shape[1]
+                    print(f"⚠️ Reemplazando BatchNorm2d por BatchNorm1d para entrada con forma {x.shape}")
+                    # Reemplazar la capa por una BatchNorm1d con el número correcto de features
+                    self.feature_extractor[i] = nn.BatchNorm1d(num_features).to(x.device)
+                    module = self.feature_extractor[i]
+                else:
+                    # En caso de entrada 4D, se verifica que el número de canales coincida
+                    num_channels = x.shape[1]
+                    if module.num_features != num_channels:
+                        print(f"⚠️ Ajustando BatchNorm2d: esperaba {module.num_features} canales, pero recibió {num_channels}")
+                        self.feature_extractor[i] = nn.BatchNorm2d(num_channels).to(x.device)
+                        module = self.feature_extractor[i]
+            x = module(x)
 
         # Construcción dinámica de capas densas
         if not hasattr(self, "fully_connected"):
@@ -598,6 +607,7 @@ class BuildPyTorchModel(nn.Module):
 
         x = self.fully_connected(x)
         return x
+
 
 
 
