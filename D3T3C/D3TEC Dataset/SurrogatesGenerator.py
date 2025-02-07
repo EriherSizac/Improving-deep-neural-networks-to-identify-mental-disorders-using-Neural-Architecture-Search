@@ -524,65 +524,81 @@ class BuildPyTorchModel(nn.Module):
     def __init__(self, model_dict, input_shape=(1, 64, 552), verbose=False):
         """
         Construye un modelo de PyTorch a partir de un diccionario de arquitectura.
+        Se agrega una capa inicial que convierte el input de 1 canal a un número de canales
+        requerido (por ejemplo, 4), para que la arquitectura cumpla con el requerimiento de mínimo 4 filtros.
         """
         super(BuildPyTorchModel, self).__init__()
         self.verbose = verbose
+        # Decodifica la arquitectura
         model_dict = decode_model_architecture(model_dict)
+        
+        # Si el input tiene 1 canal y se requiere al menos 4 canales según el encoding,
+        # insertamos una capa de conversión (una convolución 1x1).
+        target_in_channels = 4  # Valor arbitrario; en tu caso el encoding exige mínimo 4 filtros
         layers = []
-        in_channels = input_shape[0]  # Se asume que el input_shape es el original
+        if input_shape[0] != target_in_channels:
+            if self.verbose:
+                print(f"📌 Insertando capa de conversión: de {input_shape[0]} canal(es) a {target_in_channels} canales.")
+            self.initial_conv = nn.Conv2d(in_channels=input_shape[0],
+                                          out_channels=target_in_channels,
+                                          kernel_size=1)
+            in_channels = target_in_channels
+        else:
+            self.initial_conv = None
+            in_channels = input_shape[0]
+        
+        self.linear_layers = []  # Se almacenarán las capas densas para construirlas luego
 
-        self.linear_layers = []  # Se guardan las configuraciones para capas densas
-
+        # Construcción de las capas según el modelo decodificado
         for layer in model_dict['layers']:
             if layer['type'] == 'Conv2D':
-                layers.append(nn.Conv2d(in_channels=in_channels, out_channels=layer['filters'],
-                                        kernel_size=3, stride=layer['strides'], padding=1))
+                layers.append(nn.Conv2d(in_channels=in_channels,
+                                        out_channels=layer['filters'],
+                                        kernel_size=3,
+                                        stride=layer['strides'],
+                                        padding=1))
                 layers.append(nn.ReLU() if layer['activation'] == "relu" else nn.LeakyReLU())
-                in_channels = layer['filters']
+                in_channels = layer['filters']  # Se actualiza el número de canales según la salida de la conv.
             elif layer['type'] == 'SelfAttention':
                 layers.append(SelfAttention(filters=in_channels,
                                             attention_heads=layer['attention_heads'],
                                             activation=layer['activation'],
                                             verbose=self.verbose))
-                # Se mantiene in_channels sin modificación arbitraria
+                # No modificamos in_channels aquí, ya que SelfAttention debería preservar la cantidad de canales.
             elif layer['type'] == 'BatchNorm':
                 layers.append(nn.BatchNorm2d(in_channels))
             elif layer['type'] == 'MaxPooling':
                 layers.append(nn.MaxPool2d(kernel_size=2, stride=layer['strides'], padding=1))
             elif layer['type'] == 'Flatten':
-                # En lugar de convertir con Conv2D y luego aplanar, se retira la transformación.
                 layers.append(nn.Flatten())
             elif layer['type'] == 'Dense':
+                # Las capas densas se construirán más adelante
                 self.linear_layers.append((layer['units'], layer['activation']))
             elif layer['type'] == 'Dropout':
                 layers.append(nn.Dropout(p=layer['rate']))
             elif layer['type'] == 'DontCare':
                 layers.append(DontCareLayer())
-
+        
         self.feature_extractor = nn.Sequential(*layers)
-
+    
     def forward(self, x):
-        if self.verbose:
-            print(f"📌 BuildPyTorchModel - Input Shape: {x.shape}")
-        # Se omiten las operaciones de squeeze/unsqueeze para conservar la forma original.
+        # Si se insertó una capa de conversión, aplicarla.
+        if self.initial_conv is not None:
+            x = self.initial_conv(x)
         x = self.feature_extractor(x)
-        if self.verbose:
-            print(f"📌 BuildPyTorchModel - Feature extractor output shape: {x.shape}")
-
-        # Se construyen las capas densas dinámicamente sin alterar la forma de x
+        
+        # Construir dinámicamente las capas densas (fully connected) si aún no existen.
         if not hasattr(self, "fully_connected"):
             in_features = x.shape[1]
-            layers = []
+            fc_layers = []
             for units, activation in self.linear_layers:
-                layers.append(nn.Linear(in_features, units))
-                layers.append(nn.ReLU() if activation == "relu" else nn.LeakyReLU())
+                fc_layers.append(nn.Linear(in_features, units))
+                fc_layers.append(nn.ReLU() if activation == "relu" else nn.LeakyReLU())
                 in_features = units
-            self.fully_connected = nn.Sequential(*layers).to(x.device)
-
+            self.fully_connected = nn.Sequential(*fc_layers).to(x.device)
         x = self.fully_connected(x)
-        if self.verbose:
-            print(f"📌 BuildPyTorchModel - Final output shape: {x.shape}")
         return x
+
 
 
 
