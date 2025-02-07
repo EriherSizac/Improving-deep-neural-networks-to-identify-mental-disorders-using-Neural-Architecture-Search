@@ -1149,6 +1149,7 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
             outputs = model(inputs)
             # Se comenta la línea de flatten para ver la salida original:
             # outputs = outputs.view(-1)
+            labels = labels.view(-1, 1)
             print(f"📌 Epoch {epoch+1}: Outputs shape (sin view): {outputs.shape}")
 
             loss = criterion(outputs, labels)
@@ -1165,6 +1166,7 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
     with torch.no_grad():
         for inputs, labels in test_loader:
             inputs, labels = inputs.to(device), labels.float().to(device)
+            labels = labels.view(-1, 1)
             outputs = model(inputs).squeeze()  # Aquí se deja el squeeze para evitar dimensiones extra en batch
             print(f"📌 Test batch - Outputs shape: {outputs.shape}")
             predictions = (torch.sigmoid(outputs) > 0.5).int()
