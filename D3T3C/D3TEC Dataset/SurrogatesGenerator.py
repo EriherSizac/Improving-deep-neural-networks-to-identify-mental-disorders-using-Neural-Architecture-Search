@@ -940,9 +940,15 @@ def show_first_two_spectrograms(dataset):
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
     for i in range(2):
         spec, label = dataset[i]
-        axes[i].imshow(spec.numpy(), origin="lower", aspect="auto", cmap="magma")
+        # Si la forma es (1, 64, 552), eliminamos la dimensión extra para imshow
+        if spec.shape[0] == 1:
+            spec_to_plot = spec.squeeze(0)
+        else:
+            spec_to_plot = spec
+        axes[i].imshow(spec_to_plot.numpy(), origin="lower", aspect="auto", cmap="magma")
         axes[i].set_title(f"Espectrograma {i+1} - Label: {label}")
     plt.show()
+
 
 
 def save_checkpoint(file_path, architecture_index):
