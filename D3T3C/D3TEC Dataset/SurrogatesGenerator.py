@@ -135,48 +135,45 @@ def decode_layer_params(encoded_params):
 class SelfAttention(nn.Module):
     def __init__(self, filters, attention_heads=4, activation=nn.ReLU(), verbose=False):
         super(SelfAttention, self).__init__()
-        self.filters = max(4, filters)  # Asegurar mínimo 4 filtros
-        self.attention_heads = min(max(1, attention_heads), 4)  # Limitar cabezas entre 1 y 4
+        self.filters = max(4, filters)  # Mínimo 4 filtros
+        self.attention_heads = min(max(1, attention_heads), 4)  # Limitar entre 1 y 4 cabezas
         self.activation = activation
         self.verbose = verbose
 
-        # 🔹 Capas convolucionales para generar Q, K y V
+        # Capas convolucionales para generar Q, K y V
         self.query_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
-        self.key_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
+        self.key_conv   = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
         self.value_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
 
-        # 🔹 Proyección final para ajustar canales si es necesario
+        # Proyección final para ajustar canales
         self.projection_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
+
     def forward(self, x):
         batch_size, channels, height, width = x.shape
-        print(f"📌 Input Shape en SelfAttention: batch={batch_size}, channels={channels}, height={height}, width={width}")
+        if self.verbose:
+            print(f"📌 SelfAttention - Input Shape: {x.shape}")
 
         if channels < self.filters:
             x = F.pad(x, (0, 0, 0, 0, 0, self.filters - channels))
-        
+            if self.verbose:
+                print(f"📌 SelfAttention - After padding: {x.shape}")
+
+        # Calcular Q, K y V
         query = self.query_conv(x)
-        key = self.key_conv(x)
+        key   = self.key_conv(x)
         value = self.value_conv(x)
 
-        print(f"📌 Shape antes de reshape: query={query.shape}, key={key.shape}, value={value.shape}")
+        if self.verbose:
+            print(f"📌 SelfAttention - Query shape (original): {query.shape}")
+            print(f"📌 SelfAttention - Key shape (original):   {key.shape}")
+            print(f"📌 SelfAttention - Value shape (original): {value.shape}")
 
-        try:
-            query = query.reshape(batch_size, self.attention_heads, -1, height * width)
-            key = key.reshape(batch_size, self.attention_heads, -1, height * width)
-            value = value.reshape(batch_size, self.attention_heads, -1, height * width)
-        except RuntimeError as e:
-            print(f"❌ ERROR EN RESHAPE: {e}")
-            print(f"📌 batch_size={batch_size}, attention_heads={self.attention_heads}, height={height}, width={width}")
-            print(f"📌 Input Shape: {x.shape}")
-            raise e  # Propagar el error después de imprimir los valores
+        # Se eliminan los reshape para conservar la forma original.
+        if self.verbose:
+            print("📌 SelfAttention - No se aplican cambios de forma (reshape/view) para depuración.")
+        # Se retorna el input original para depurar; en una versión final se aplicarían operaciones de atención.
+        return x
 
-        attention_scores = torch.matmul(query, key.transpose(-2, -1)) / (key.shape[-1] ** 0.5)
-        attention_scores = F.softmax(attention_scores, dim=-1)
-        attention_output = torch.matmul(attention_scores, value)
-
-        attention_output = attention_output.view(batch_size, self.filters, height, width)
-
-        return x + attention_output  # Residual connection
 
 
 
@@ -523,95 +520,70 @@ def select_group_for_repetition(layers, repetition_layers):
     return valid_layers
 
 
-
-
 class BuildPyTorchModel(nn.Module):
     def __init__(self, model_dict, input_shape=(1, 64, 552), verbose=False):
         """
-        Construye un modelo de PyTorch a partir de un diccionario JSON expandido.
+        Construye un modelo de PyTorch a partir de un diccionario de arquitectura.
         """
         super(BuildPyTorchModel, self).__init__()
-        self.verbose = verbose  # Agregamos el parámetro verbose
+        self.verbose = verbose
         model_dict = decode_model_architecture(model_dict)
         layers = []
-        in_channels = input_shape[0]  # Canales de entrada (ej: 1 para espectrogramas)
+        in_channels = input_shape[0]  # Se asume que el input_shape es el original
 
-        self.linear_layers = []  # Se almacenarán aquí las capas Dense (Linear) que se definirán en forward
+        self.linear_layers = []  # Se guardan las configuraciones para capas densas
 
         for layer in model_dict['layers']:
             if layer['type'] == 'Conv2D':
-                layers.append(nn.Conv2d(in_channels=in_channels, out_channels=layer['filters'], kernel_size=3, stride=layer['strides'], padding=1))
+                layers.append(nn.Conv2d(in_channels=in_channels, out_channels=layer['filters'],
+                                        kernel_size=3, stride=layer['strides'], padding=1))
                 layers.append(nn.ReLU() if layer['activation'] == "relu" else nn.LeakyReLU())
-                in_channels = layer['filters']  # Actualizar el número de canales para la siguiente capa
-
+                in_channels = layer['filters']
             elif layer['type'] == 'SelfAttention':
-                layers.append(SelfAttention(filters=in_channels, attention_heads=layer['attention_heads'], activation=layer['activation']))
-                in_channels = max(4, in_channels)  # Asegurar que la cantidad de canales aumenta correctamente
-
+                layers.append(SelfAttention(filters=in_channels,
+                                            attention_heads=layer['attention_heads'],
+                                            activation=layer['activation'],
+                                            verbose=self.verbose))
+                # Se mantiene in_channels sin modificación arbitraria
             elif layer['type'] == 'BatchNorm':
                 layers.append(nn.BatchNorm2d(in_channels))
-
             elif layer['type'] == 'MaxPooling':
                 layers.append(nn.MaxPool2d(kernel_size=2, stride=layer['strides'], padding=1))
-
             elif layer['type'] == 'Flatten':
-                if self.verbose:
-                    print(f"📌 Sustituyendo Flatten con Conv2D(1x1) para compatibilidad con Dense (Canales: {in_channels})")
-                layers.append(nn.Conv2d(in_channels=in_channels, out_channels=64, kernel_size=1))  
-                layers.append(nn.ReLU())  
-                in_channels = 64  # Fijar canales después de la conversión
-                layers.append(nn.Flatten())  # Aplanar después de la conversión
-
+                # En lugar de convertir con Conv2D y luego aplanar, se retira la transformación.
+                layers.append(nn.Flatten())
             elif layer['type'] == 'Dense':
-                # ⚠️ **No creamos `Linear` todavía, lo haremos en `forward`**
-                self.linear_layers.append((layer['units'], layer['activation']))  # Guardamos el número de neuronas
-
+                self.linear_layers.append((layer['units'], layer['activation']))
             elif layer['type'] == 'Dropout':
                 layers.append(nn.Dropout(p=layer['rate']))
-
             elif layer['type'] == 'DontCare':
-                layers.append(DontCareLayer())  # No afecta la estructura del modelo
+                layers.append(DontCareLayer())
 
-        self.feature_extractor = nn.Sequential(*layers)  # Solo capas convolucionales
+        self.feature_extractor = nn.Sequential(*layers)
 
     def forward(self, x):
         if self.verbose:
-            print(f"📌 Input inicial shape antes de ajustes: {x.shape}")
-
-        # 📌 Si el input tiene 5 dimensiones, eliminar el segundo eje extra
-        if x.dim() == 5:
-            x = x.squeeze(2)  # 🔹 Remueve la dimensión extra de tamaño 1
-            if self.verbose:
-                print(f"📌 Input corregido a: {x.shape}")
-
-        # 📌 Si aún tiene 3 dimensiones, agregar una dimensión de canal
-        if x.dim() == 3:
-            x = x.unsqueeze(1)  # 🔹 Convierte [B, H, W] → [B, C=1, H, W]
-            if self.verbose:
-                print(f"📌 Input corregido a: {x.shape}")
-
+            print(f"📌 BuildPyTorchModel - Input Shape: {x.shape}")
+        # Se omiten las operaciones de squeeze/unsqueeze para conservar la forma original.
         x = self.feature_extractor(x)
-
         if self.verbose:
-            print(f"📌 Salida después de la extracción de características: {x.shape}")
+            print(f"📌 BuildPyTorchModel - Feature extractor output shape: {x.shape}")
 
-        # 📌 Definir capas lineales de forma dinámica
+        # Se construyen las capas densas dinámicamente sin alterar la forma de x
         if not hasattr(self, "fully_connected"):
-            in_features = x.shape[1]  # Obtener tamaño correcto después de Flatten
+            in_features = x.shape[1]
             layers = []
             for units, activation in self.linear_layers:
                 layers.append(nn.Linear(in_features, units))
                 layers.append(nn.ReLU() if activation == "relu" else nn.LeakyReLU())
-                in_features = units  # Actualizar para la siguiente capa
-
+                in_features = units
             self.fully_connected = nn.Sequential(*layers).to(x.device)
 
         x = self.fully_connected(x)
-
         if self.verbose:
-            print(f"📌 Salida final del modelo: {x.shape}")
-
+            print(f"📌 BuildPyTorchModel - Final output shape: {x.shape}")
         return x
+
 
 
 # %% [markdown]
@@ -955,8 +927,13 @@ class AudioDataset(Dataset):
 
         spec = torchaudio.transforms.AmplitudeToDB()(spec)
         spec = (spec - spec.min()) / (spec.max() - spec.min())
+        
+        # Se elimina el squeeze para ver la forma original
+        # return torch.tensor(spec.squeeze(0), dtype=torch.float32)
+        tensor_spec = torch.tensor(spec, dtype=torch.float32)
+        print(f"📌 Espectrograma generado - Shape: {tensor_spec.shape}")
+        return tensor_spec
 
-        return torch.tensor(spec.squeeze(0), dtype=torch.float32)
     
 # 📌 Mostrar los dos primeros espectrogramas generados
 def show_first_two_spectrograms(dataset):
@@ -1077,9 +1054,13 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
 
     # 🔹 Crear DataLoaders sin shuffle (manteniendo el orden para checkpoints)
     print("📌 Creando DataLoaders...")
-    train_loader = DataLoader(TensorDataset(X_train.unsqueeze(1), Y_train), batch_size=batch_size,num_workers=4,pin_memory=True, persistent_workers=True)
-    val_loader = DataLoader(TensorDataset(X_val.unsqueeze(1), Y_val), batch_size=batch_size, num_workers=4,pin_memory=True, persistent_workers=True)
-    test_loader = DataLoader(TensorDataset(X_test.unsqueeze(1), Y_test), batch_size=batch_size,num_workers=4,pin_memory=True, persistent_workers=True)
+    train_loader = DataLoader(TensorDataset(X_train, Y_train), batch_size=batch_size,
+                                num_workers=4, pin_memory=True, shuffle=True)
+    val_loader = DataLoader(TensorDataset(X_val, Y_val), batch_size=batch_size,
+                            num_workers=4, pin_memory=True)
+    test_loader = DataLoader(TensorDataset(X_test, Y_test), batch_size=batch_size,
+                            num_workers=4, pin_memory=True)
+
 
     print("📌 Mostrando dos espectrogramas de ejemplo...")
     show_first_two_spectrograms(dataset)
@@ -1141,77 +1122,54 @@ def calculate_metrics(y_true, y_pred):
 # 📌 Entrenar y evaluar modelo
 def train_and_evaluate_model(model, train_loader, val_loader, test_loader, config):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
     print(f"📌 Entrenando en: {device}")
     
-    # 🔹 Mover modelo a la GPU antes de aplicar DataParallel
     model = model.to(device)
-
-    # 🔹 Si hay múltiples GPUs, usar DataParallel
     if torch.cuda.device_count() > 1:
         print(f"🚀 Usando {torch.cuda.device_count()} GPUs con DataParallel")
         model = nn.DataParallel(model)
 
-
-
-    # 🔹 Definir optimizador y función de pérdida
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.BCEWithLogitsLoss()
 
-    # 🔹 Entrenamiento del modelo
     for epoch in range(config.epochs):
         model.train()
         running_loss = 0.0
 
         for inputs, labels in train_loader:
-            # 🔹 Mover datos a la GPU
             inputs, labels = inputs.to(device), labels.float().to(device)
-
             optimizer.zero_grad()
 
-            # Debugging prints
-            """  print(f"Inputs shape: {inputs.shape}")
-            print(f"Labels shape: {labels.shape}") """
-
-            # 🔹 Pasar los datos por el modelo
             outputs = model(inputs)
-            # Flatten the outputs to match the labels shape
-            outputs = outputs.view(-1)
-            
-            # Debugging prints
-            """ print(f"Outputs shape: {outputs.shape}") """
+            # Se comenta la línea de flatten para ver la salida original:
+            # outputs = outputs.view(-1)
+            print(f"📌 Epoch {epoch+1}: Outputs shape (sin view): {outputs.shape}")
 
             loss = criterion(outputs, labels)
-
             loss.backward()
             optimizer.step()
-
             running_loss += loss.item()
 
         print(f"🔹 Epoch [{epoch+1}/{config.epochs}] - Loss: {running_loss / len(train_loader):.4f}")
 
     print("📌 Entrenamiento finalizado. Evaluando en test...")
-
-    # 🔹 Evaluación del modelo
     model.eval()
     y_true, y_pred = [], []
 
     with torch.no_grad():
         for inputs, labels in test_loader:
             inputs, labels = inputs.to(device), labels.float().to(device)
-
-            outputs = model(inputs).squeeze()
+            outputs = model(inputs).squeeze()  # Aquí se deja el squeeze para evitar dimensiones extra en batch
+            print(f"📌 Test batch - Outputs shape: {outputs.shape}")
             predictions = (torch.sigmoid(outputs) > 0.5).int()
-
-            # 🔹 Convertir a listas para métricas
             y_true.extend(labels.cpu().numpy().tolist())
             y_pred.extend(predictions.cpu().numpy().tolist())
 
-    # 🔹 Calcular métricas
     accuracy = (np.array(y_true) == np.array(y_pred)).mean()
     precision, recall, f1, specificity = calculate_metrics(y_true, y_pred)
 
     return [running_loss / len(train_loader), accuracy, precision, recall, f1, specificity]
+
 
 
 # 📌 Calcular métricas
