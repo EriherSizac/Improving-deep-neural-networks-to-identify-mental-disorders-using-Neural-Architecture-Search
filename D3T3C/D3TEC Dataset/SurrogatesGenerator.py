@@ -147,37 +147,34 @@ class SelfAttention(nn.Module):
 
         # 🔹 Proyección final para ajustar canales si es necesario
         self.projection_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
-
     def forward(self, x):
         batch_size, channels, height, width = x.shape
+        print(f"📌 Input Shape en SelfAttention: batch={batch_size}, channels={channels}, height={height}, width={width}")
 
-        # 🔹 Ajustar si el input tiene menos canales de los que espera la convolución
         if channels < self.filters:
-            x = F.pad(x, (0, 0, 0, 0, 0, self.filters - channels))  # Añadir canales extras con padding
-
-        # Aplicar convoluciones para generar Q, K y V
+            x = F.pad(x, (0, 0, 0, 0, 0, self.filters - channels))
+        
         query = self.query_conv(x)
         key = self.key_conv(x)
         value = self.value_conv(x)
 
-        # Reshape para atención
-        query = query.reshape(batch_size, self.attention_heads, -1, height * width)
-        key = key.reshape(batch_size, self.attention_heads, -1, height * width)
-        value = value.reshape(batch_size, self.attention_heads, -1, height * width)
+        print(f"📌 Shape antes de reshape: query={query.shape}, key={key.shape}, value={value.shape}")
 
-        # 🔹 Transponer `key` para que tenga dimensiones correctas
+        try:
+            query = query.reshape(batch_size, self.attention_heads, -1, height * width)
+            key = key.reshape(batch_size, self.attention_heads, -1, height * width)
+            value = value.reshape(batch_size, self.attention_heads, -1, height * width)
+        except RuntimeError as e:
+            print(f"❌ ERROR EN RESHAPE: {e}")
+            print(f"📌 batch_size={batch_size}, attention_heads={self.attention_heads}, height={height}, width={width}")
+            print(f"📌 Input Shape: {x.shape}")
+            raise e  # Propagar el error después de imprimir los valores
+
         attention_scores = torch.matmul(query, key.transpose(-2, -1)) / (key.shape[-1] ** 0.5)
         attention_scores = F.softmax(attention_scores, dim=-1)
-
-        # 🔹 Aplicar atención sobre `value`
         attention_output = torch.matmul(attention_scores, value)
 
-        # Restaurar dimensiones a [batch_size, filters, height, width]
         attention_output = attention_output.view(batch_size, self.filters, height, width)
-
-        # Ajustar número de canales si es necesario
-        if attention_output.shape[1] != channels:
-            attention_output = self.projection_conv(attention_output)
 
         return x + attention_output  # Residual connection
 
