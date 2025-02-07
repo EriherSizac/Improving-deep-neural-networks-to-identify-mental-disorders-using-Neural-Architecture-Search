@@ -524,17 +524,12 @@ class BuildPyTorchModel(nn.Module):
     def __init__(self, model_dict, input_shape=(1, 64, 552), verbose=False):
         """
         Construye un modelo de PyTorch a partir de un diccionario de arquitectura.
-        Se agrega una capa inicial que convierte el input de 1 canal a un número de canales
-        requerido (por ejemplo, 4), para que la arquitectura cumpla con el requerimiento de mínimo 4 filtros.
         """
         super(BuildPyTorchModel, self).__init__()
         self.verbose = verbose
-        # Decodifica la arquitectura
         model_dict = decode_model_architecture(model_dict)
-        
-        # Si el input tiene 1 canal y se requiere al menos 4 canales según el encoding,
-        # insertamos una capa de conversión (una convolución 1x1).
-        target_in_channels = 4  # Valor arbitrario; en tu caso el encoding exige mínimo 4 filtros
+
+        target_in_channels = 4  # Número mínimo de canales requeridos en la arquitectura
         layers = []
         if input_shape[0] != target_in_channels:
             if self.verbose:
@@ -546,10 +541,9 @@ class BuildPyTorchModel(nn.Module):
         else:
             self.initial_conv = None
             in_channels = input_shape[0]
-        
-        self.linear_layers = []  # Se almacenarán las capas densas para construirlas luego
 
-        # Construcción de las capas según el modelo decodificado
+        self.linear_layers = []
+
         for layer in model_dict['layers']:
             if layer['type'] == 'Conv2D':
                 layers.append(nn.Conv2d(in_channels=in_channels,
@@ -558,13 +552,12 @@ class BuildPyTorchModel(nn.Module):
                                         stride=layer['strides'],
                                         padding=1))
                 layers.append(nn.ReLU() if layer['activation'] == "relu" else nn.LeakyReLU())
-                in_channels = layer['filters']  # Se actualiza el número de canales según la salida de la conv.
+                in_channels = layer['filters']
             elif layer['type'] == 'SelfAttention':
                 layers.append(SelfAttention(filters=in_channels,
                                             attention_heads=layer['attention_heads'],
                                             activation=layer['activation'],
                                             verbose=self.verbose))
-                # No modificamos in_channels aquí, ya que SelfAttention debería preservar la cantidad de canales.
             elif layer['type'] == 'BatchNorm':
                 layers.append(nn.BatchNorm2d(in_channels))
             elif layer['type'] == 'MaxPooling':
@@ -572,22 +565,30 @@ class BuildPyTorchModel(nn.Module):
             elif layer['type'] == 'Flatten':
                 layers.append(nn.Flatten())
             elif layer['type'] == 'Dense':
-                # Las capas densas se construirán más adelante
                 self.linear_layers.append((layer['units'], layer['activation']))
             elif layer['type'] == 'Dropout':
                 layers.append(nn.Dropout(p=layer['rate']))
             elif layer['type'] == 'DontCare':
                 layers.append(DontCareLayer())
-        
+
         self.feature_extractor = nn.Sequential(*layers)
-    
+
     def forward(self, x):
-        # Si se insertó una capa de conversión, aplicarla.
         if self.initial_conv is not None:
             x = self.initial_conv(x)
         x = self.feature_extractor(x)
-        
-        # Construir dinámicamente las capas densas (fully connected) si aún no existen.
+
+        # 📌 🔹 Ajuste dinámico de `BatchNorm2d`
+        for module in self.feature_extractor:
+            if isinstance(module, nn.BatchNorm2d):
+                num_channels = x.shape[1]  # Obtener canales actuales
+                if module.num_features != num_channels:
+                    print(f"⚠️ WARNING: BatchNorm2d esperaba {module.num_features} canales, pero recibió {num_channels}. Ajustando...")
+                    module = nn.BatchNorm2d(num_channels).to(x.device)
+
+            x = module(x)
+
+        # Construcción dinámica de capas densas
         if not hasattr(self, "fully_connected"):
             in_features = x.shape[1]
             fc_layers = []
@@ -596,8 +597,10 @@ class BuildPyTorchModel(nn.Module):
                 fc_layers.append(nn.ReLU() if activation == "relu" else nn.LeakyReLU())
                 in_features = units
             self.fully_connected = nn.Sequential(*fc_layers).to(x.device)
+
         x = self.fully_connected(x)
         return x
+
 
 
 
