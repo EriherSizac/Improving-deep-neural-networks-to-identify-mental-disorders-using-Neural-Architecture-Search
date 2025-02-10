@@ -78,14 +78,25 @@ def pad_and_crop_spectrograms(spectrograms, target_shape=(128, 128)):
     """
     padded_spectrograms = []
     for spec in spectrograms:
-        # Recorte si es mayor al tamaño objetivo
+        # Si el espectrograma tiene más de 2 dimensiones (por ejemplo, [canales, n_mels, tiempo]),
+        # seleccionamos el primer canal o calculamos el promedio de los canales.
+        if spec.ndim > 2:
+            # Opción 1: Usar el primer canal
+            spec = spec[0]
+            # Opción 2 (alternativa): Promediar entre canales
+            # spec = spec.mean(axis=0)
+        
+        # Recortar si es mayor al tamaño objetivo
         if spec.shape[0] > target_shape[0]:
             spec = spec[:target_shape[0], :]
         if spec.shape[1] > target_shape[1]:
             spec = spec[:, :target_shape[1]]
         
-        pad_width = [(0, max(0, target_shape[0] - spec.shape[0])), 
-                     (0, max(0, target_shape[1] - spec.shape[1]))]
+        # Calcular padding para cada dimensión
+        pad_width = [
+            (0, max(0, target_shape[0] - spec.shape[0])),
+            (0, max(0, target_shape[1] - spec.shape[1]))
+        ]
         
         padded_spec = np.pad(spec, pad_width, mode='constant')
         padded_spectrograms.append(padded_spec)
