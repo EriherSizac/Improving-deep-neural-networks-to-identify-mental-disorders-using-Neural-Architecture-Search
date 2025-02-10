@@ -103,19 +103,21 @@ def train_test_split_audio(audio_dict):
 
     X, Y = [], []
     for filename, data in tqdm(audio_dict.items(), desc='LABEL'):
-        # Se asume que el ID está en los tres primeros caracteres del nombre
+        # Verifica y depura cómo se extrae el ID
         ID = filename[:3]
         if ID in labels:
             dep = 0 if labels[ID] == 0 else 1
-            # Se agrega el espectrograma completo (si se quisiera cada fila, habría que iterar)
             X.append(data)
             Y.append(dep)
+        else:
+            print(f"ID no encontrado: {ID} para el archivo {filename}")
 
+    print(f"Total muestras extraídas: {len(X)}")
     X = pad_and_crop_spectrograms(X)
     Y = np.array(Y)
-    # Agregamos una dimensión de canal (PyTorch espera [batch, channels, H, W])
     X = X[..., np.newaxis]
     return X, Y
+
 
 # Definición de Modelos en PyTorch
 
