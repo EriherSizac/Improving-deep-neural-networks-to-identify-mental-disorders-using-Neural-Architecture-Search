@@ -111,6 +111,8 @@ def train_test_split_audio(audio_dict):
             X.append(data)
             Y.append(dep)
         else:
+            print(type(ID))
+            print(type(df['Participant_ID']))
             print(f"ID no encontrado: {ID} para el archivo {filename}")
 
     print(f"Total muestras extraídas: {len(X)}")
