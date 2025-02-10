@@ -97,6 +97,7 @@ def train_test_split_audio(audio_dict):
     espectrograma a su etiqueta según el ID del participante.
     """
     df = pd.read_csv('./Dataset.csv', usecols=['Participant_ID', 'PHQ-9 Score'])
+    print(df.head())
     df['labels'] = 0
     df.loc[df['PHQ-9 Score'] >= 10, 'labels'] = 1
     labels = df.set_index('Participant_ID')['labels'].to_dict()
