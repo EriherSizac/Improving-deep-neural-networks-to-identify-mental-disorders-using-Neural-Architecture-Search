@@ -106,14 +106,16 @@ def train_test_split_audio(audio_dict):
     for filename, data in tqdm(audio_dict.items(), desc='LABEL'):
         # Verifica y depura cómo se extrae el ID
         ID = filename[:3]
-        if ID in labels:
-            dep = 0 if labels[ID] == 0 else 1
-            X.append(data)
-            Y.append(dep)
-        else:
-            print(type(ID))
-            print(type(df['Participant_ID'].values[0]))
-            print(f"ID no encontrado: {ID} para el archivo {filename}")
+        try:
+            int_ID = int(ID)
+            if int_ID in labels:
+                dep = 0 if int(labels[int_ID]) == 0 else 1
+                X.append(data)
+                Y.append(dep)
+            else:
+                print(f"ID no encontrado: {int_ID} para el archivo {filename}")
+        except ValueError:
+            print(f"ID inválido: {ID} para el archivo {filename}")
 
     print(f"Total muestras extraídas: {len(X)}")
     X = pad_and_crop_spectrograms(X)
