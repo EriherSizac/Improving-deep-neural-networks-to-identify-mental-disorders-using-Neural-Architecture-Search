@@ -267,6 +267,52 @@ def specificity_score(y_true, y_pred):
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
     return tn / (tn + fp + 1e-8)
 
+def main(architecture='CNN_LF', epochs=50, n_splits=5, window_size=10, pad_short_audio=False, resize_input=True):
+    config = Config(architecture=architecture, epochs=epochs, n_splits=n_splits, window_size=window_size,
+                    pad_short_audio=pad_short_audio, resize_input=resize_input)
+    directory = './SM-27'
+    
+    # Carga y preprocesamiento de audio (se pasa el parámetro pad_short_audio)
+    audio_dict, sample_rate = load_audio_data(directory, config.window_size, config.sample_rate, config.pad_short_audio)
+    audio_dict = preprocess_audio(audio_dict, sample_rate)
+    X, Y = train_test_split_audio(audio_dict)
+    
+    # División en entrenamiento+validación y test (80%-20%)
+    X_train_val, X_test, Y_train_val, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
+    
+    # Mostrar el primer y último espectrograma
+    plot_spectrogram(X[0].squeeze(), "Primer Espectrograma")
+    plot_spectrogram(X[-1].squeeze(), "Último Espectrograma")
+    
+    # Validación cruzada KFold en el conjunto de entrenamiento+validación
+    kfold = KFold(n_splits=config.n_splits, shuffle=True, random_state=42)
+    results = []
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    for fold, (train_index, val_index) in enumerate(kfold.split(X_train_val), 1):
+        X_train, X_val = X_train_val[train_index], X_train_val[val_index]
+        Y_train, Y_val = Y_train_val[train_index], Y_train_val[val_index]
+        
+        model = build_model(config)
+        print(f"\nIniciando Fold {fold}")
+        fold_results = train_and_evaluate_model(model, X_train, Y_train, X_val, Y_val, X_test, Y_test, config, device)
+        results.append(fold_results)
+    
+    results = np.array(results)
+    avg_results = np.mean(results, axis=0)
+    
+    print("\nResultados por fold:")
+    for i, result in enumerate(results, 1):
+        print(f"Fold {i} - Loss: {result[0]:.4f}, Accuracy: {result[1]:.4f}, Precision: {result[2]:.4f}, "
+              f"Recall: {result[3]:.4f}, F1-score: {result[4]:.4f}, Specificity: {result[5]:.4f}")
+    
+    print("\nResultados Promedio:")
+    print(f"Loss: {avg_results[0]:.4f}, Accuracy: {avg_results[1]:.4f}, Precision: {avg_results[2]:.4f}, "
+          f"Recall: {avg_results[3]:.4f}, F1-score: {avg_results[4]:.4f}, Specificity: {avg_results[5]:.4f}")
+    return avg_results
+
+
 # Entrenamiento y Evaluación (con DataParallel y DataLoader en paralelo)
 def train_and_evaluate_model(model, X_train, Y_train, X_val, Y_val, X_test, Y_test, config, device):
     model = model.to(device)
