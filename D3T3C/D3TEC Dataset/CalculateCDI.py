@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split, KFold
 from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix, accuracy_score
 
-# Configuración de parámetros (ahora incluye pad_short_audio y resize_input)
+# Configuración de parámetros extendida
 class Config:
     def __init__(self, architecture='CNN_LF', epochs=50, sample_rate=None, time=5, n_splits=5, window_size=5,
                  pad_short_audio=False, resize_input=True):
@@ -25,14 +25,14 @@ class Config:
         self.time = time
         self.n_splits = n_splits
         self.window_size = window_size
-        self.pad_short_audio = pad_short_audio    # Si True, se hace padding a audios cortos; si False, se omiten.
-        self.resize_input = resize_input          # Si True, se redimensiona la imagen; de lo contrario se deja intacta.
+        self.pad_short_audio = pad_short_audio    # Si True, se rellena audios cortos; si False, se omiten.
+        self.resize_input = resize_input          # Si True, se redimensiona la imagen; de lo contrario, se deja intacta.
 
 # Funciones de Preprocesamiento
 def load_audio_data(directory, window_size, sample_rate, pad_short_audio=False):
     """
     Carga los archivos .wav desde un directorio, dividiéndolos en ventanas de duración 'window_size'.
-    Si el audio tiene menos muestras que el requerido y pad_short_audio es True, se rellena con ceros.
+    Si el audio tiene menos muestras que el requerido y pad_short_audio es True, se le hace padding.
     """
     audio_dict = {}
     for file_name in os.listdir(directory):
@@ -48,27 +48,24 @@ def load_audio_data(directory, window_size, sample_rate, pad_short_audio=False):
                     waveform = torch.nn.functional.pad(waveform, (0, pad_amount))
                     num_windows = 1
                 else:
-                    # Omitir audio corto
                     continue
             else:
                 num_windows = int(total_samples / required_samples)
             for i in range(num_windows):
                 start = int(i * required_samples)
                 end = int((i + 1) * required_samples)
-                # Se guarda cada ventana con una clave única
                 audio_dict[f"{file_name}_{i}"] = waveform[:, start:end].numpy()
     return audio_dict, sample_rate
 
 def preprocess_audio(audio_dict, sample_rate):
     """
-    Calcula el melspectrograma de cada ventana y lo normaliza en el rango [0,1].
+    Calcula el melspectrograma de cada ventana y lo normaliza en [0,1].
     """
     audio_dict = copy.deepcopy(audio_dict)
     n_mels = 128
     n_fft = int(sample_rate * 0.029)
     hop_length = int(sample_rate * 0.010)
     win_length = int(sample_rate * 0.025)
-
     mel_transform = torchaudio.transforms.MelSpectrogram(
         sample_rate=sample_rate, n_fft=n_fft, n_mels=n_mels,
         hop_length=hop_length, win_length=win_length
@@ -80,7 +77,6 @@ def preprocess_audio(audio_dict, sample_rate):
         spec = mel_transform(waveform_tensor)
         spec = db_transform(spec)
         spec = spec.numpy()
-        # Normalización min-max
         spec = (spec - spec.min()) / (spec.max() - spec.min() + 1e-8)
         audio_dict[filename] = spec
     return audio_dict
@@ -88,20 +84,16 @@ def preprocess_audio(audio_dict, sample_rate):
 def pad_and_crop_spectrograms(spectrograms, target_shape=(128, 128)):
     """
     Recorta o agrega padding a cada espectrograma para que tenga el tamaño objetivo.
-    Si el espectrograma tiene más de 2 dimensiones (por ejemplo, [canales, n_mels, tiempo]),
-    se utiliza el primer canal (o alternativamente se podría promediar entre canales).
+    Si el espectrograma tiene más de 2 dimensiones, se toma el primer canal.
     """
     padded_spectrograms = []
     for spec in spectrograms:
         if spec.ndim > 2:
-            # Usar el primer canal
             spec = spec[0]
-        # Recortar si es mayor al tamaño objetivo
         if spec.shape[0] > target_shape[0]:
             spec = spec[:target_shape[0], :]
         if spec.shape[1] > target_shape[1]:
             spec = spec[:, :target_shape[1]]
-        # Calcular padding para cada dimensión
         pad_width = [
             (0, max(0, target_shape[0] - spec.shape[0])),
             (0, max(0, target_shape[1] - spec.shape[1]))
@@ -112,8 +104,7 @@ def pad_and_crop_spectrograms(spectrograms, target_shape=(128, 128)):
 
 def train_test_split_audio(audio_dict):
     """
-    Lee el archivo 'Dataset.csv' para obtener las etiquetas (umbral en PHQ-9 Score) y asocia cada
-    espectrograma a su etiqueta según el ID del participante.
+    Lee 'Dataset.csv' para obtener etiquetas (usando PHQ-9 Score) y asocia cada espectrograma a su etiqueta.
     Se asume que el ID se extrae de los tres primeros caracteres del nombre del archivo.
     """
     df = pd.read_csv('./Dataset.csv', usecols=['Participant_ID', 'PHQ-9 Score'])
@@ -132,20 +123,18 @@ def train_test_split_audio(audio_dict):
                 X.append(data)
                 Y.append(dep)
             else:
-                print(f"ID no encontrado: {int_ID} para el archivo {filename}")
+                print(f"ID no encontrado: {int_ID} en {filename}")
         except ValueError:
-            print(f"ID inválido: {ID} para el archivo {filename}")
+            print(f"ID inválido: {ID} en {filename}")
     print(f"Total muestras extraídas: {len(X)}")
     X = pad_and_crop_spectrograms(X)
     Y = np.array(Y)
-    # Agregar dimensión de canal para PyTorch: [batch, channels, H, W]
     X = X[..., np.newaxis]
     return X, Y
 
 
-# Definición de Modelos en PyTorch
+# Definición de modelos en PyTorch
 
-# Modelo CNN_LF, ahora con opción de redimensionar o no la imagen (resize_input)
 class CNN_LF(nn.Module):
     def __init__(self, input_shape=(128, 128, 1), resize_input=True):
         super(CNN_LF, self).__init__()
@@ -184,7 +173,6 @@ class CNN_LF(nn.Module):
         x = self.fc2(x)
         return torch.sigmoid(x)
 
-# Modelo ReducedModel (sin cambios respecto a antes)
 class ReducedModel(nn.Module):
     def __init__(self, input_shape=(128, 128, 1)):
         super(ReducedModel, self).__init__()
@@ -216,7 +204,6 @@ class ReducedModel(nn.Module):
         x = self.fc2(x)
         return torch.sigmoid(x)
 
-# Modelo SpectroCNN (sin cambios respecto a antes)
 class SpectroCNN(nn.Module):
     def __init__(self, input_shape=(128, 128, 1)):
         super(SpectroCNN, self).__init__()
@@ -280,11 +267,9 @@ def specificity_score(y_true, y_pred):
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
     return tn / (tn + fp + 1e-8)
 
-# Entrenamiento y Evaluación en PyTorch
+# Entrenamiento y Evaluación (con DataParallel y DataLoader en paralelo)
 def train_and_evaluate_model(model, X_train, Y_train, X_val, Y_val, X_test, Y_test, config, device):
-    # Mover el modelo al dispositivo
     model = model.to(device)
-    # Si hay más de una GPU, envolver el modelo para paralelismo
     if torch.cuda.device_count() > 1:
         model = nn.DataParallel(model)
         print(f"Utilizando {torch.cuda.device_count()} GPUs")
@@ -293,7 +278,6 @@ def train_and_evaluate_model(model, X_train, Y_train, X_val, Y_val, X_test, Y_te
     optimizer = torch.optim.Adadelta(model.parameters())
     batch_size = 500
 
-    # Crear DataLoaders con múltiples workers
     train_dataset = TensorDataset(torch.tensor(X_train, dtype=torch.float32),
                                   torch.tensor(Y_train, dtype=torch.float32))
     val_dataset = TensorDataset(torch.tensor(X_val, dtype=torch.float32),
@@ -305,7 +289,6 @@ def train_and_evaluate_model(model, X_train, Y_train, X_val, Y_val, X_test, Y_te
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
     
-    # Bucle de entrenamiento
     for epoch in range(config.epochs):
         model.train()
         running_loss = 0.0
@@ -320,7 +303,6 @@ def train_and_evaluate_model(model, X_train, Y_train, X_val, Y_val, X_test, Y_te
             running_loss += loss.item() * batch_x.size(0)
         epoch_loss = running_loss / len(train_loader.dataset)
         
-        # Evaluación en validación
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
@@ -333,7 +315,6 @@ def train_and_evaluate_model(model, X_train, Y_train, X_val, Y_val, X_test, Y_te
         val_loss /= len(val_loader.dataset)
         print(f"Epoch {epoch+1}/{config.epochs} - Train Loss: {epoch_loss:.4f} - Val Loss: {val_loss:.4f}")
     
-    # Evaluación en test
     model.eval()
     test_loss = 0.0
     all_preds = []
@@ -359,57 +340,95 @@ def train_and_evaluate_model(model, X_train, Y_train, X_val, Y_val, X_test, Y_te
     
     return test_loss, accuracy, precision, recall, f1, spec
 
-# Función principal de ejecución (con validación cruzada)
-def main(architecture='CNN_LF', epochs=50, n_splits=5, window_size=10, pad_short_audio=False, resize_input=True):
-    config = Config(architecture=architecture, epochs=epochs, n_splits=n_splits, window_size=window_size,
-                    pad_short_audio=pad_short_audio, resize_input=resize_input)
-    directory = './SM-27'
-    
-    # Carga y preprocesamiento de audio (se pasa el parámetro pad_short_audio)
-    audio_dict, sample_rate = load_audio_data(directory, config.window_size, config.sample_rate, config.pad_short_audio)
-    audio_dict = preprocess_audio(audio_dict, sample_rate)
-    X, Y = train_test_split_audio(audio_dict)
-    
-    # División en entrenamiento+validación y test (80%-20%)
-    X_train_val, X_test, Y_train_val, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
-    
-    # Mostrar el primer y último espectrograma
-    plot_spectrogram(X[0].squeeze(), "Primer Espectrograma")
-    plot_spectrogram(X[-1].squeeze(), "Último Espectrograma")
-    
-    # Validación cruzada KFold en el conjunto de entrenamiento+validación
-    kfold = KFold(n_splits=config.n_splits, shuffle=True, random_state=42)
-    results = []
-    
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    for fold, (train_index, val_index) in enumerate(kfold.split(X_train_val), 1):
-        X_train, X_val = X_train_val[train_index], X_train_val[val_index]
-        Y_train, Y_val = Y_train_val[train_index], Y_train_val[val_index]
-        
-        model = build_model(config)
-        print(f"\nIniciando Fold {fold}")
-        fold_results = train_and_evaluate_model(model, X_train, Y_train, X_val, Y_val, X_test, Y_test, config, device)
-        results.append(fold_results)
-    
-    results = np.array(results)
-    avg_results = np.mean(results, axis=0)
-    
-    print("\nResultados por fold:")
-    for i, result in enumerate(results, 1):
-        print(f"Fold {i} - Loss: {result[0]:.4f}, Accuracy: {result[1]:.4f}, Precision: {result[2]:.4f}, "
-              f"Recall: {result[3]:.4f}, F1-score: {result[4]:.4f}, Specificity: {result[5]:.4f}")
-    
-    print("\nResultados Promedio:")
-    print(f"Loss: {avg_results[0]:.4f}, Accuracy: {avg_results[1]:.4f}, Precision: {avg_results[2]:.4f}, "
-          f"Recall: {avg_results[3]:.4f}, F1-score: {avg_results[4]:.4f}, Specificity: {avg_results[5]:.4f}")
-    return avg_results
+# Grupo 1: Experimentar variando solo el tamaño de la ventana (para 50 y 100 épocas)
+def run_experiments_group1():
+    architectures = ['CNN_LF', 'reduced_model', 'Spectro_CNN']
+    n_splits_options = [10]
+    epochs_options = [50, 100]
+    window_sizes = [2, 5, 10, 15, 20, 30]
+    # Para este grupo, usamos los parámetros por defecto:
+    pad_audio = False
+    resize_input = True
 
-# Función para graficar resultados de experimentos
+    results = {}
+    json_file = 'experiment_results_group1.json'
+    if os.path.exists(json_file):
+        with open(json_file, 'r') as f:
+            results = json.load(f)
+
+    total_experiments = (len(architectures) * len(n_splits_options) *
+                         len(epochs_options) * len(window_sizes))
+    experiment_count = 0
+
+    for architecture in architectures:
+        for n_splits in n_splits_options:
+            for epochs in epochs_options:
+                for window_size in window_sizes:
+                    key = (f"group1_{architecture}_splits_{n_splits}_epochs_{epochs}_window_{window_size}"
+                           f"_pad_{pad_audio}_resize_{resize_input}")
+                    if key not in results:
+                        print(f"\nEjecutando experimento {experiment_count + 1}/{total_experiments}: {key}")
+                        avg_results = main(architecture=architecture, epochs=epochs, n_splits=n_splits,
+                                           window_size=window_size, pad_short_audio=pad_audio,
+                                           resize_input=resize_input)
+                        results[key] = {
+                            'Loss': avg_results[0],
+                            'Accuracy': avg_results[1],
+                            'Precision': avg_results[2],
+                            'Recall': avg_results[3],
+                            'F1-score': avg_results[4],
+                            'Specificity': avg_results[5]
+                        }
+                        with open(json_file, 'w') as f:
+                            json.dump(results, f, indent=4)
+                        experiment_count += 1
+    return results
+
+# Grupo 2: Usar la "mejor ventana" (por ejemplo, 10) y variar el parámetro resize_input (True/False)
+def run_experiments_group2(best_window=10):
+    architectures = ['CNN_LF', 'reduced_model', 'Spectro_CNN']
+    n_splits_options = [10]
+    epochs_options = [50, 100]
+    resize_options = [True, False]
+    # Para este grupo, fijamos la ventana en la "mejor" (best_window) y mantenemos pad_audio = False.
+    pad_audio = False
+
+    results = {}
+    json_file = 'experiment_results_group2.json'
+    if os.path.exists(json_file):
+        with open(json_file, 'r') as f:
+            results = json.load(f)
+
+    total_experiments = (len(architectures) * len(n_splits_options) *
+                         len(epochs_options) * len(resize_options))
+    experiment_count = 0
+
+    for architecture in architectures:
+        for n_splits in n_splits_options:
+            for epochs in epochs_options:
+                for resize in resize_options:
+                    key = (f"group2_{architecture}_splits_{n_splits}_epochs_{epochs}_window_{best_window}"
+                           f"_pad_{pad_audio}_resize_{resize}")
+                    if key not in results:
+                        print(f"\nEjecutando experimento {experiment_count + 1}/{total_experiments}: {key}")
+                        avg_results = main(architecture=architecture, epochs=epochs, n_splits=n_splits,
+                                           window_size=best_window, pad_short_audio=pad_audio,
+                                           resize_input=resize)
+                        results[key] = {
+                            'Loss': avg_results[0],
+                            'Accuracy': avg_results[1],
+                            'Precision': avg_results[2],
+                            'Recall': avg_results[3],
+                            'F1-score': avg_results[4],
+                            'Specificity': avg_results[5]
+                        }
+                        with open(json_file, 'w') as f:
+                            json.dump(results, f, indent=4)
+                        experiment_count += 1
+    return results
+
 def plot_experiment_results(results):
     metrics = ['Loss', 'Accuracy', 'Precision', 'Recall', 'F1-score', 'Specificity']
-    
-    # Gráfica individual por métrica
     for metric in metrics:
         plt.figure(figsize=(12, 6))
         x_labels = list(results.keys())
@@ -422,71 +441,21 @@ def plot_experiment_results(results):
         plt.legend(loc='best')
         plt.tight_layout()
         plt.show()
-    
-    # Gráfica comparativa de todas las métricas
-    plt.figure(figsize=(12, 6))
-    for metric in metrics:
-        metric_values = [results[k][metric] for k in results.keys()]
-        plt.plot(list(results.keys()), metric_values, marker='o', label=metric)
-    plt.title('Comparison of all metrics across different experiments')
-    plt.xlabel('Experiment')
-    plt.ylabel('Metric Value')
-    plt.xticks(rotation=90)
-    plt.legend(loc='best')
-    plt.tight_layout()
-    plt.show()
-
-    # Ejemplo: Gráfica de línea filtrada (ajusta según convenga)
-    # Aquí se puede agregar filtrado por arquitectura, splits, epochs, etc.
 
 def run_experiments():
-    architectures = ['CNN_LF', 'reduced_model', 'Spectro_CNN']
-    n_splits_options = [10]
-    epochs_options = [50, 100]
-    window_sizes = [2, 5, 10, 15, 20, 30]
-    pad_options = [True, False]
-    resize_options = [True, False]
-
-    results = {}
-    json_file = 'experiment_results.json'
-
-    # Cargar resultados previos si existen
-    if os.path.exists(json_file):
-        with open(json_file, 'r') as f:
-            results = json.load(f)
-
-    total_experiments = (len(architectures) * len(n_splits_options) *
-                         len(epochs_options) * len(window_sizes) *
-                         len(pad_options) * len(resize_options))
-    experiment_count = 0
-
-    for architecture in architectures:
-        for n_splits in n_splits_options:
-            for epochs in epochs_options:
-                for window_size in window_sizes:
-                    for pad in pad_options:
-                        for resize in resize_options:
-                            experiment_key = (f"{architecture}_splits_{n_splits}_epochs_{epochs}_window_{window_size}"
-                                              f"_pad_{pad}_resize_{resize}")
-                            if experiment_key not in results:
-                                print(f"\nRunning experiment {experiment_count + 1}/{total_experiments}: {experiment_key}")
-                                avg_results = main(architecture=architecture, epochs=epochs, n_splits=n_splits,
-                                                   window_size=window_size, pad_short_audio=pad, resize_input=resize)
-                                results[experiment_key] = {
-                                    'Loss': avg_results[0],
-                                    'Accuracy': avg_results[1],
-                                    'Precision': avg_results[2],
-                                    'Recall': avg_results[3],
-                                    'F1-score': avg_results[4],
-                                    'Specificity': avg_results[5]
-                                }
-                                with open(json_file, 'w') as f:
-                                    json.dump(results, f, indent=4)
-                                experiment_count += 1
-
-    plot_experiment_results(results)
+    print("Ejecutando Grupo 1: Variando la ventana y épocas...")
+    results_group1 = run_experiments_group1()
+    print("\nEjecutando Grupo 2: Fijando la mejor ventana y variando el redimensionamiento...")
+    # Supongamos que la mejor ventana es 10 (se puede ajustar según los resultados de Grupo 1)
+    best_window = 10
+    #results_group2 = run_experiments_group2(best_window=best_window)
+    
+    # Aquí se pueden graficar los resultados de cada grupo por separado o combinados
+    print("\nResultados Grupo 1:")
+    plot_experiment_results(results_group1)
+    print("\nResultados Grupo 2:")
+    #plot_experiment_results(results_group2)
 
 # %%
-# Ejecución de los experimentos
 if __name__ == '__main__':
     run_experiments()
