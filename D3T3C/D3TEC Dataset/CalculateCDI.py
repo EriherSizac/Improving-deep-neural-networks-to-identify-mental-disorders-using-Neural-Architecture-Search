@@ -335,7 +335,7 @@ def train_and_evaluate_model(model, X_train, Y_train, X_val, Y_val, X_test, Y_te
     
     criterion = nn.BCELoss()
     optimizer = torch.optim.Adadelta(model.parameters())
-    batch_size = 128
+    batch_size = 64
 
     train_dataset = TensorDataset(torch.tensor(X_train, dtype=torch.float32),
                                   torch.tensor(Y_train, dtype=torch.float32))
