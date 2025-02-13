@@ -334,7 +334,8 @@ def train_and_evaluate_model(model, X_train, Y_train, X_val, Y_val, X_test, Y_te
         print(f"Utilizando {torch.cuda.device_count()} GPUs")
     
     criterion = nn.BCELoss()
-    optimizer = torch.optim.Adadelta(model.parameters())
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+
     batch_size = 64
 
     train_dataset = TensorDataset(torch.tensor(X_train, dtype=torch.float32),
