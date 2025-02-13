@@ -416,7 +416,7 @@ def run_experiments_group1():
                     key = (f"group1_{architecture}_splits_{n_splits}_epochs_{epochs}_window_{window_size}"
                            f"_pad_{pad_audio}_resize_{resize_input}")
                     if key not in results.keys():
-                        print(f"\nEjecutando experimento {experiment_count + 1}/{total_experiments}: {key}")
+                        print(f"\nEjecutando experimento {experiment_count + 1 + total_done_experiments}/{total_experiments}: {key}")
                         avg_results = main(architecture=architecture, epochs=epochs, n_splits=n_splits,
                                            window_size=window_size, pad_short_audio=pad_audio,
                                            resize_input=resize_input)
