@@ -185,18 +185,18 @@ class ReducedModel(nn.Module):
         self.conv2 = nn.Conv2d(16, 8, kernel_size=3, padding=1)
         self.leaky2 = nn.LeakyReLU(negative_slope=0.01)
         self.bn3 = nn.BatchNorm2d(8)
-        self.pool = nn.MaxPool2d(2, 2)  # 🔹 Agregar pooling para reducir tamaño
+        self.pool = nn.MaxPool2d(2, 2)  # 🔹 Pooling para reducir tamaño
         self.flatten = nn.Flatten()
 
-        # 🔹 Calcular tamaño correcto de entrada para fc1
-        self.feature_size = 8 * (128 // 2) * (128 // 2)  # 8 canales después del último Conv, con pooling
-        self.fc1 = nn.Linear(self.feature_size, 32)
+        # 🔹 Corrige el tamaño de entrada para fc1
+        self.feature_size = 8 * 64 * 64  # Antes era 8 * 128 * 128
+        self.fc1 = nn.Linear(self.feature_size, 32)  
         self.leaky3 = nn.LeakyReLU(negative_slope=0.01)
         self.fc2 = nn.Linear(32, 1)
 
     def forward(self, x):
         if x.dim() == 4 and x.shape[-1] == 1:
-            x = x.permute(0, 3, 1, 2)  # 🔹 Reorganizar dimensiones
+            x = x.permute(0, 3, 1, 2)  
 
         x = self.bn1(x)
         x = self.conv1(x)
@@ -205,16 +205,16 @@ class ReducedModel(nn.Module):
         x = self.conv2(x)
         x = self.leaky2(x)
         x = self.bn3(x)
-        x = self.pool(x)  # 🔹 Aplicar pooling para reducir tamaño
-        print(f"Shape de la entrada antes de Flatten: {x.shape}")
+        x = self.pool(x)  # 🔹 Pooling agregado
         x = self.flatten(x)
-        print(f"Shape después de Flatten: {x.shape}")
 
+        print(f"Shape después de Flatten: {x.shape}")  # 🔍 Depuración
 
         x = self.fc1(x)
         x = self.leaky3(x)
         x = self.fc2(x)
         return torch.sigmoid(x)
+
 
 
 class SpectroCNN(nn.Module):
