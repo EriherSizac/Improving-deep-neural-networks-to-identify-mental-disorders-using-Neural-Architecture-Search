@@ -309,7 +309,7 @@ def main(architecture='CNN_LF', epochs=50, n_splits=5, window_size=10, pad_short
         
         model = build_model(config)
         print(f"\nIniciando Fold {fold}")
-        fold_results = train_and_evaluate_model(model, X_train, Y_train, X_val, Y_val, X_test, Y_test, config, device)
+        fold_results = _evaluate_model(model, X_train, Y_train, X_val, Y_val, X_test, Y_test, config, device)
         results.append(fold_results)
     
     results = np.array(results)
@@ -327,11 +327,13 @@ def main(architecture='CNN_LF', epochs=50, n_splits=5, window_size=10, pad_short
 
 
 # Entrenamiento y Evaluación (con DataParallel y DataLoader en paralelo)
-def train_and_evaluate_model(model, X_train, Y_train, X_val, Y_val, X_test, Y_test, config, device):
-    model = model.to(device)
-    if torch.cuda.device_count() > 1:
-        model = nn.DataParallel(model)
-        print(f"Utilizando {torch.cuda.device_count()} GPUs")
+def _evaluate_model(model, X_train, Y_train, X_val, Y_val, X_test, Y_test, config, device):
+    # model = model.to(device)
+    # if torch.cuda.device_count() > 1:
+    #     model = nn.DataParallel(model)
+    #     print(f"Utilizando {torch.cuda.device_count()} GPUs")
+    device = torch.device("cuda:0")  # 🔹 Usar solo la GPU 0
+    model = model.to(device)         # 🔹 Mover modelo a esa GPU
     
     criterion = nn.BCELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
