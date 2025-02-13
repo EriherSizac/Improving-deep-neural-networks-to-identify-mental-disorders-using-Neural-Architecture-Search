@@ -15,6 +15,8 @@ from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split, KFold
 from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix, accuracy_score
 
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+
 # Configuración de parámetros extendida
 class Config:
     def __init__(self, architecture='CNN_LF', epochs=50, sample_rate=None, time=5, n_splits=5, window_size=5,
