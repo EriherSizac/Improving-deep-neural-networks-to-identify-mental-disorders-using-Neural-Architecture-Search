@@ -412,7 +412,7 @@ def run_experiments_group1():
                 for window_size in window_sizes:
                     key = (f"group1_{architecture}_splits_{n_splits}_epochs_{epochs}_window_{window_size}"
                            f"_pad_{pad_audio}_resize_{resize_input}")
-                    if key not in results:
+                    if key not in results.keys():
                         print(f"\nEjecutando experimento {experiment_count + 1}/{total_experiments}: {key}")
                         avg_results = main(architecture=architecture, epochs=epochs, n_splits=n_splits,
                                            window_size=window_size, pad_short_audio=pad_audio,
@@ -428,6 +428,9 @@ def run_experiments_group1():
                         with open(json_file, 'w') as f:
                             json.dump(results, f, indent=4)
                         experiment_count += 1
+
+                    else:
+                        print(f"Experimento {key} ya realizado. Saltando...")   
     return results
 
 # Grupo 2: Usar la "mejor ventana" (por ejemplo, 10) y variar el parámetro resize_input (True/False)
