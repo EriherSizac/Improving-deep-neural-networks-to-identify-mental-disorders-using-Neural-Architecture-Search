@@ -324,7 +324,7 @@ def train_and_evaluate_model(model, X_train, Y_train, X_val, Y_val, X_test, Y_te
     
     criterion = nn.BCELoss()
     optimizer = torch.optim.Adadelta(model.parameters())
-    batch_size = 500
+    batch_size = 300
 
     train_dataset = TensorDataset(torch.tensor(X_train, dtype=torch.float32),
                                   torch.tensor(Y_train, dtype=torch.float32))
@@ -332,7 +332,9 @@ def train_and_evaluate_model(model, X_train, Y_train, X_val, Y_val, X_test, Y_te
                                 torch.tensor(Y_val, dtype=torch.float32))
     test_dataset = TensorDataset(torch.tensor(X_test, dtype=torch.float32),
                                  torch.tensor(Y_test, dtype=torch.float32))
-    
+    print(f"Shape de X_train: {X_train.shape}")
+    print(f"Shape de Y_train: {Y_train.shape}")
+
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
