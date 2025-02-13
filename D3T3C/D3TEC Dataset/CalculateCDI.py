@@ -406,6 +406,9 @@ def run_experiments_group1():
                          len(epochs_options) * len(window_sizes))
     experiment_count = 0
 
+    total_done_experiments = len(results.keys())
+    print(f"\nExperimentos ya realizados: {total_done_experiments}/{total_experiments}")
+
     for architecture in architectures:
         for n_splits in n_splits_options:
             for epochs in epochs_options:
