@@ -331,9 +331,9 @@ def train_and_evaluate_model(model, X_train, Y_train, X_val, Y_val, X_test, Y_te
     test_dataset = TensorDataset(torch.tensor(X_test, dtype=torch.float32),
                                  torch.tensor(Y_test, dtype=torch.float32))
     
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
     
     for epoch in range(config.epochs):
         model.train()
