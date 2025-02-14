@@ -349,9 +349,9 @@ def _evaluate_model(model, X_train, Y_train, X_val, Y_val, X_test, Y_test, confi
     print(f"Shape de X_train: {X_train.shape}")
     print(f"Shape de Y_train: {Y_train.shape}")
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=1)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=1)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=1)
     
     for epoch in range(config.epochs):
         model.train()
