@@ -338,7 +338,7 @@ def _evaluate_model(model, X_train, Y_train, X_val, Y_val, X_test, Y_test, confi
     criterion = nn.BCELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
-    batch_size = 1000
+    batch_size =   700
 
     train_dataset = TensorDataset(torch.tensor(X_train, dtype=torch.float32),
                                   torch.tensor(Y_train, dtype=torch.float32))
