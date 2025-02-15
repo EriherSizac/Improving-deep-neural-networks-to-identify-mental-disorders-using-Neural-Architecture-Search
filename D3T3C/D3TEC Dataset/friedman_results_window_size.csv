@@ -1,25 +1,25 @@
 Metric,Test,Statistic,p-value,GroupBy,Architecture,Significance,Significance Level
-Loss,Friedman Test,16.0,0.0030191636511226055,Window Size,CNN_LF,Yes,0.01
-Accuracy,Friedman Test,16.0,0.0030191636511226055,Window Size,CNN_LF,Yes,0.01
-Precision,Friedman Test,16.0,0.0030191636511226055,Window Size,CNN_LF,Yes,0.01
-Recall,Friedman Test,11.800000000000011,0.018902169249501655,Window Size,CNN_LF,No,0.01
-F1-score,Friedman Test,13.0,0.01127579394733179,Window Size,CNN_LF,No,0.01
-Specificity,Friedman Test,15.200000000000003,0.004303882327589247,Window Size,CNN_LF,Yes,0.01
-Loss,Friedman Test,16.0,0.0030191636511226055,Window Size,reduced_model,Yes,0.01
-Accuracy,Friedman Test,14.800000000000011,0.0051345231934883835,Window Size,reduced_model,Yes,0.01
-Precision,Friedman Test,15.400000000000006,0.003939596491115125,Window Size,reduced_model,Yes,0.01
-Recall,Friedman Test,8.600000000000009,0.07191336276466469,Window Size,reduced_model,No,0.01
-F1-score,Friedman Test,14.800000000000011,0.0051345231934883835,Window Size,reduced_model,Yes,0.01
-Specificity,Friedman Test,16.0,0.0030191636511226055,Window Size,reduced_model,Yes,0.01
-Loss,Friedman Test,11.800000000000011,0.018902169249501655,Window Size,Spectro_CNN,No,0.01
-Accuracy,Friedman Test,14.600000000000009,0.005606971834108885,Window Size,Spectro_CNN,Yes,0.01
-Precision,Friedman Test,14.400000000000006,0.006122003628688757,Window Size,Spectro_CNN,Yes,0.01
-Recall,Friedman Test,15.400000000000006,0.003939596491115125,Window Size,Spectro_CNN,Yes,0.01
-F1-score,Friedman Test,13.600000000000009,0.008687446153189435,Window Size,Spectro_CNN,Yes,0.01
-Specificity,Friedman Test,15.200000000000003,0.004303882327589247,Window Size,Spectro_CNN,Yes,0.01
-Loss,Friedman Test,30.066666666666663,4.743840848012242e-06,Window Size,All Architectures,Yes,0.01
-Accuracy,Friedman Test,36.53333333333333,2.2474707465915715e-07,Window Size,All Architectures,Yes,0.01
-Precision,Friedman Test,27.0,1.987890675256922e-05,Window Size,All Architectures,Yes,0.01
-Recall,Friedman Test,12.333333333333343,0.015037231996246415,Window Size,All Architectures,No,0.01
-F1-score,Friedman Test,10.333333333333343,0.035171885487712176,Window Size,All Architectures,No,0.01
-Specificity,Friedman Test,28.26666666666665,1.1013007134524733e-05,Window Size,All Architectures,Yes,0.01
+Loss,Friedman Test,5.0,0.4158801869955079,Window Size,CNN_LF,No,0.008333333333333333
+Accuracy,Friedman Test,5.0,0.4158801869955079,Window Size,CNN_LF,No,0.008333333333333333
+Precision,Friedman Test,5.0,0.4158801869955079,Window Size,CNN_LF,No,0.008333333333333333
+Recall,Friedman Test,5.0,0.4158801869955079,Window Size,CNN_LF,No,0.008333333333333333
+F1-score,Friedman Test,5.0,0.4158801869955079,Window Size,CNN_LF,No,0.008333333333333333
+Specificity,Friedman Test,5.0,0.4158801869955079,Window Size,CNN_LF,No,0.008333333333333333
+Loss,Friedman Test,5.0,0.4158801869955079,Window Size,reduced_model,No,0.008333333333333333
+Accuracy,Friedman Test,5.0,0.4158801869955079,Window Size,reduced_model,No,0.008333333333333333
+Precision,Friedman Test,5.0,0.4158801869955079,Window Size,reduced_model,No,0.008333333333333333
+Recall,Friedman Test,5.0,0.4158801869955079,Window Size,reduced_model,No,0.008333333333333333
+F1-score,Friedman Test,5.0,0.4158801869955079,Window Size,reduced_model,No,0.008333333333333333
+Specificity,Friedman Test,5.0,0.4158801869955079,Window Size,reduced_model,No,0.008333333333333333
+Loss,Friedman Test,5.0,0.4158801869955079,Window Size,Spectro_CNN,No,0.008333333333333333
+Accuracy,Friedman Test,5.0,0.4158801869955079,Window Size,Spectro_CNN,No,0.008333333333333333
+Precision,Friedman Test,5.0,0.4158801869955079,Window Size,Spectro_CNN,No,0.008333333333333333
+Recall,Friedman Test,5.0,0.4158801869955079,Window Size,Spectro_CNN,No,0.008333333333333333
+F1-score,Friedman Test,5.0,0.4158801869955079,Window Size,Spectro_CNN,No,0.008333333333333333
+Specificity,Friedman Test,5.0,0.4158801869955079,Window Size,Spectro_CNN,No,0.008333333333333333
+Loss,Friedman Test,9.476190476190467,0.09151276161320991,Window Size,All Architectures,No,0.008333333333333333
+Accuracy,Friedman Test,11.0,0.05137998348306955,Window Size,All Architectures,No,0.008333333333333333
+Precision,Friedman Test,7.38095238095238,0.19381463668854906,Window Size,All Architectures,No,0.008333333333333333
+Recall,Friedman Test,3.19047619047619,0.6706468207856121,Window Size,All Architectures,No,0.008333333333333333
+F1-score,Friedman Test,3.19047619047619,0.6706468207856121,Window Size,All Architectures,No,0.008333333333333333
+Specificity,Friedman Test,10.23809523809524,0.06876325966962772,Window Size,All Architectures,No,0.008333333333333333
