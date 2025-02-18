@@ -135,44 +135,40 @@ def decode_layer_params(encoded_params):
 class SelfAttention(nn.Module):
     def __init__(self, filters, attention_heads=4, activation=nn.ReLU(), verbose=False):
         super(SelfAttention, self).__init__()
-        self.filters = max(4, filters)  # Mínimo 4 filtros
-        self.attention_heads = min(max(1, attention_heads), 4)  # Limitar entre 1 y 4 cabezas
+        self.filters = max(4, filters)  
+        self.attention_heads = min(max(1, attention_heads), 4)  
         self.activation = activation
         self.verbose = verbose
 
-        # Capas convolucionales para generar Q, K y V
         self.query_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
-        self.key_conv   = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
+        self.key_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
         self.value_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
-
-        # Proyección final para ajustar canales
         self.projection_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
 
     def forward(self, x):
         batch_size, channels, height, width = x.shape
-        if self.verbose:
-            print(f"📌 SelfAttention - Input Shape: {x.shape}")
 
         if channels < self.filters:
             x = F.pad(x, (0, 0, 0, 0, 0, self.filters - channels))
-            if self.verbose:
-                print(f"📌 SelfAttention - After padding: {x.shape}")
 
-        # Calcular Q, K y V
         query = self.query_conv(x)
-        key   = self.key_conv(x)
+        key = self.key_conv(x)
         value = self.value_conv(x)
 
-        if self.verbose:
-            print(f"📌 SelfAttention - Query shape (original): {query.shape}")
-            print(f"📌 SelfAttention - Key shape (original):   {key.shape}")
-            print(f"📌 SelfAttention - Value shape (original): {value.shape}")
+        # Reshape para computación de atención
+        query = query.view(batch_size, self.attention_heads, -1, height * width)
+        key = key.view(batch_size, self.attention_heads, -1, height * width)
+        value = value.view(batch_size, self.attention_heads, -1, height * width)
 
-        # Se eliminan los reshape para conservar la forma original.
-        if self.verbose:
-            print("📌 SelfAttention - No se aplican cambios de forma (reshape/view) para depuración.")
-        # Se retorna el input original para depurar; en una versión final se aplicarían operaciones de atención.
-        return x
+        attention_scores = torch.matmul(query.permute(0, 1, 3, 2), key)  # QK^T
+        attention_scores = F.softmax(attention_scores, dim=-1)
+        out = torch.matmul(attention_scores, value.permute(0, 1, 3, 2))  # Softmax(QK^T)V
+
+        out = out.view(batch_size, self.filters, height, width)  # Restaurar dimensiones
+        out = self.projection_conv(out)
+        
+        return out
+
 
 
 
