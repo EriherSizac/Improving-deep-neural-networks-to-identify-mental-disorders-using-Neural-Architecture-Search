@@ -132,66 +132,76 @@ def decode_layer_params(encoded_params):
 # %%
 
 
-
-class SelfAttention(nn.Module):
+class SelfAttentionLinear(nn.Module):
     def __init__(self, filters, attention_heads=4, activation=nn.ReLU(), verbose=False):
-        super(SelfAttention, self).__init__()
-        # Ajustar filters para que sea divisible por attention_heads
+        super(SelfAttentionLinear, self).__init__()
+        # Aseguramos que filters sea divisible por attention_heads
         if filters % attention_heads != 0:
             if verbose:
                 print(f"Warning: {filters} no es divisible por {attention_heads}. Ajustando filters.")
             filters = filters - (filters % attention_heads)
-            filters = max(filters, attention_heads)  # Asegurarse de que sea al menos igual a attention_heads
-        
+            filters = max(filters, attention_heads)
         self.filters = max(4, filters)
         self.attention_heads = min(max(1, attention_heads), 4)
         self.activation = activation
         self.verbose = verbose
 
-        # Las convoluciones se asumen con in_channels = self.filters
+        # Capas convolucionales para Q, K y V; se asume que la entrada tendrá self.filters canales
         self.query_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
         self.key_conv   = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
         self.value_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
         self.projection_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
-        # Proyección para ajustar canales (se creará de forma lazy si es necesario)
+        # Capa para ajustar el número de canales de la entrada (se crea de forma lazy)
         self.channel_adjust = None
 
     def forward(self, x):
         batch_size, channels, height, width = x.shape
-        
         # Si la entrada no tiene self.filters canales, se ajusta:
         if channels != self.filters:
             if self.channel_adjust is None or self.channel_adjust.in_channels != channels:
-                # Crear de forma lazy un conv1x1 para proyectar de channels a self.filters
                 self.channel_adjust = nn.Conv2d(channels, self.filters, kernel_size=1).to(x.device)
                 if self.verbose:
-                    print(f"SelfAttention: Creando capa de ajuste para pasar de {channels} a {self.filters} canales.")
+                    print(f"SelfAttentionLinear: Creando capa de ajuste para pasar de {channels} a {self.filters} canales.")
             x = self.channel_adjust(x)
-            channels = self.filters
-
-        # Continuar con las operaciones de atención
-        query = self.query_conv(x)
-        key = self.key_conv(x)
-        value = self.value_conv(x)
-
-        # Reorganizar para dividir en cabezas de atención:
-        # Se asume que self.filters es divisible por self.attention_heads
-        # La división se realiza sobre la dimensión de canales.
-        # Calculamos el número de canales por cabeza:
-        channels_per_head = self.filters // self.attention_heads
-        # Cambiar forma a: [batch, attention_heads, channels_per_head, height*width]
-        query = query.view(batch_size, self.attention_heads, channels_per_head, height * width)
-        key   = key.view(batch_size, self.attention_heads, channels_per_head, height * width)
-        value = value.view(batch_size, self.attention_heads, channels_per_head, height * width)
-
-        # Cálculo de scores de atención:
-        attention_scores = torch.matmul(query.permute(0, 1, 3, 2), key)  # [batch, heads, height*width, height*width]
-        attention_scores = F.softmax(attention_scores, dim=-1)
-        out = torch.matmul(attention_scores, value.permute(0, 1, 3, 2))
-        out = out.view(batch_size, self.filters, height, width)
-        out = self.projection_conv(out)
         
+        # Cálculo de Q, K y V
+        Q = self.query_conv(x)  # (B, self.filters, H, W)
+        K = self.key_conv(x)
+        V = self.value_conv(x)
+        
+        # Reshape a (B, heads, N, d) donde d = self.filters / attention_heads y N = H * W
+        d = self.filters // self.attention_heads
+        N = height * width
+        Q = Q.view(batch_size, self.attention_heads, d, N).permute(0, 1, 3, 2)  # (B, heads, N, d)
+        K = K.view(batch_size, self.attention_heads, d, N).permute(0, 1, 3, 2)
+        V = V.view(batch_size, self.attention_heads, d, N).permute(0, 1, 3, 2)
+        
+        # Función de activación para la atención lineal: φ(x) = elu(x) + 1
+        phi = lambda x: F.elu(x) + 1
+        phi_Q = phi(Q)  # (B, heads, N, d)
+        phi_K = phi(K)  # (B, heads, N, d)
+        
+        # Cálculo del numerador: φ(Q) · (φ(K)^T V)
+        # Primero, computamos M = φ(K)^T V, donde la multiplicación se realiza sobre la dimensión de N:
+        M = torch.matmul(phi_K.transpose(-2, -1), V)  # (B, heads, d, d)
+        numerator = torch.matmul(phi_Q, M)  # (B, heads, N, d)
+        
+        # Cálculo del denominador: φ(Q) · (φ(K)^T 1)
+        ones = torch.ones(phi_K.size()[:-1] + (1,), device=phi_K.device)  # (B, heads, N, 1)
+        M_den = torch.matmul(phi_K.transpose(-2, -1), ones)  # (B, heads, d, 1)
+        denominator = torch.matmul(phi_Q, M_den)  # (B, heads, N, 1)
+        
+        # Evitar división por cero:
+        out = numerator / (denominator + 1e-6)  # (B, heads, N, d)
+        
+        # Reorganizar de nuevo a (B, self.filters, H, W)
+        out = out.permute(0, 1, 3, 2).contiguous()  # (B, heads, d, N)
+        out = out.view(batch_size, self.filters, height, width)
+        
+        # Proyección final:
+        out = self.projection_conv(out)
         return out
+
 
 
 
