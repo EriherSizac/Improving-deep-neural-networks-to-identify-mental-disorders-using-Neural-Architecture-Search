@@ -136,46 +136,63 @@ def decode_layer_params(encoded_params):
 class SelfAttention(nn.Module):
     def __init__(self, filters, attention_heads=4, activation=nn.ReLU(), verbose=False):
         super(SelfAttention, self).__init__()
-        
         # Ajustar filters para que sea divisible por attention_heads
         if filters % attention_heads != 0:
             if verbose:
-                print(f"Warning: {filters} no es divisible por {attention_heads}. Ajustando filters a {filters - (filters % attention_heads)}.")
+                print(f"Warning: {filters} no es divisible por {attention_heads}. Ajustando filters.")
             filters = filters - (filters % attention_heads)
+            filters = max(filters, attention_heads)  # Asegurarse de que sea al menos igual a attention_heads
         
         self.filters = max(4, filters)
         self.attention_heads = min(max(1, attention_heads), 4)
         self.activation = activation
         self.verbose = verbose
 
+        # Las convoluciones se asumen con in_channels = self.filters
         self.query_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
-        self.key_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
+        self.key_conv   = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
         self.value_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
         self.projection_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
+        # Proyección para ajustar canales (se creará de forma lazy si es necesario)
+        self.channel_adjust = None
 
     def forward(self, x):
         batch_size, channels, height, width = x.shape
+        
+        # Si la entrada no tiene self.filters canales, se ajusta:
+        if channels != self.filters:
+            if self.channel_adjust is None or self.channel_adjust.in_channels != channels:
+                # Crear de forma lazy un conv1x1 para proyectar de channels a self.filters
+                self.channel_adjust = nn.Conv2d(channels, self.filters, kernel_size=1).to(x.device)
+                if self.verbose:
+                    print(f"SelfAttention: Creando capa de ajuste para pasar de {channels} a {self.filters} canales.")
+            x = self.channel_adjust(x)
+            channels = self.filters
 
-        if channels < self.filters:
-            x = F.pad(x, (0, 0, 0, self.filters - channels))
-
+        # Continuar con las operaciones de atención
         query = self.query_conv(x)
         key = self.key_conv(x)
         value = self.value_conv(x)
 
-        # Aquí, self.filters es divisible por self.attention_heads
-        query = query.view(batch_size, self.attention_heads, -1, height * width)
-        key = key.view(batch_size, self.attention_heads, -1, height * width)
-        value = value.view(batch_size, self.attention_heads, -1, height * width)
+        # Reorganizar para dividir en cabezas de atención:
+        # Se asume que self.filters es divisible por self.attention_heads
+        # La división se realiza sobre la dimensión de canales.
+        # Calculamos el número de canales por cabeza:
+        channels_per_head = self.filters // self.attention_heads
+        # Cambiar forma a: [batch, attention_heads, channels_per_head, height*width]
+        query = query.view(batch_size, self.attention_heads, channels_per_head, height * width)
+        key   = key.view(batch_size, self.attention_heads, channels_per_head, height * width)
+        value = value.view(batch_size, self.attention_heads, channels_per_head, height * width)
 
-        attention_scores = torch.matmul(query.permute(0, 1, 3, 2), key)
+        # Cálculo de scores de atención:
+        attention_scores = torch.matmul(query.permute(0, 1, 3, 2), key)  # [batch, heads, height*width, height*width]
         attention_scores = F.softmax(attention_scores, dim=-1)
         out = torch.matmul(attention_scores, value.permute(0, 1, 3, 2))
-
         out = out.view(batch_size, self.filters, height, width)
         out = self.projection_conv(out)
         
         return out
+
 
 
 
@@ -280,10 +297,10 @@ def fixArch(encoded_model, verbose=False):
         list: Lista con la arquitectura corregida, truncada a un máximo de 48 alelos.
     """
     
-    fixed_layers = []  # Lista que almacenará la arquitectura corregida
-    input_is_flattened = False  # Indicador para saber si ya hay una capa Flatten en el modelo
-    dense_started = False       # Indicador para saber si ya se ha encontrado una capa Dense
-    index = 0                   # Índice para recorrer el modelo codificado
+    fixed_layers = []         # Lista que almacenará la arquitectura corregida
+    input_is_flattened = False # Indicador para saber si ya hay una capa Flatten en el modelo
+    dense_started = False      # Indicador para saber si ya se ha encontrado una capa Dense
+    index = 0                  # Índice para recorrer el modelo codificado
     found_self_attention = False  # Flag para rastrear la primera aparición de SelfAttention
 
     while index < len(encoded_model) and len(fixed_layers) < 48:
@@ -329,6 +346,12 @@ def fixArch(encoded_model, verbose=False):
                 filters = min(max(int(encoded_model[index + 1]), 4), 64)
                 attention_heads = min(max(int(encoded_model[index + 2]), 1), 4)
                 activation_idx = min(max(int(encoded_model[index + 3]), 0), 3)
+                # Ajustar filters para que sea divisible por attention_heads:
+                if filters % attention_heads != 0:
+                    nuevo_valor = filters - (filters % attention_heads)
+                    if verbose:
+                        print(f"Warning: SelfAttention filters {filters} no es divisible por attention_heads {attention_heads}. Ajustando filters a {nuevo_valor}")
+                    filters = nuevo_valor if nuevo_valor >= 4 else 4  # Asegurarse de que no sea menor que 4
                 fixed_layers.extend([layer_type, filters, attention_heads, activation_idx])
                 found_self_attention = True
 
@@ -347,7 +370,7 @@ def fixArch(encoded_model, verbose=False):
             neurons = min(max(int(encoded_model[index + 1]), 1), 512)
             activation_idx = min(max(int(encoded_model[index + 2]), 0), 3)
             fixed_layers.extend([layer_type, neurons, activation_idx, 0])
-            dense_started = True  # Una vez que aparece una capa Dense, marcamos la bandera.
+            dense_started = True  # Marcar que ya se encontró una capa Dense
 
         elif layer_type == 1:  # BatchNorm
             if len(fixed_layers) > 0:
@@ -389,6 +412,7 @@ def fixArch(encoded_model, verbose=False):
         index += 4
 
     return fixed_layers[:48]
+
 
 
 # %%
