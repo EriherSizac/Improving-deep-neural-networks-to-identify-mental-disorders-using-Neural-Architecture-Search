@@ -136,8 +136,15 @@ def decode_layer_params(encoded_params):
 class SelfAttention(nn.Module):
     def __init__(self, filters, attention_heads=4, activation=nn.ReLU(), verbose=False):
         super(SelfAttention, self).__init__()
-        self.filters = max(4, filters)  
-        self.attention_heads = min(max(1, attention_heads), 4)  
+        
+        # Ajustar filters para que sea divisible por attention_heads
+        if filters % attention_heads != 0:
+            if verbose:
+                print(f"Warning: {filters} no es divisible por {attention_heads}. Ajustando filters a {filters - (filters % attention_heads)}.")
+            filters = filters - (filters % attention_heads)
+        
+        self.filters = max(4, filters)
+        self.attention_heads = min(max(1, attention_heads), 4)
         self.activation = activation
         self.verbose = verbose
 
@@ -150,22 +157,22 @@ class SelfAttention(nn.Module):
         batch_size, channels, height, width = x.shape
 
         if channels < self.filters:
-            x = F.pad(x, (0, 0, 0, 0, 0, self.filters - channels))
+            x = F.pad(x, (0, 0, 0, self.filters - channels))
 
         query = self.query_conv(x)
         key = self.key_conv(x)
         value = self.value_conv(x)
 
-        # Reshape para computación de atención
+        # Aquí, self.filters es divisible por self.attention_heads
         query = query.view(batch_size, self.attention_heads, -1, height * width)
         key = key.view(batch_size, self.attention_heads, -1, height * width)
         value = value.view(batch_size, self.attention_heads, -1, height * width)
 
-        attention_scores = torch.matmul(query.permute(0, 1, 3, 2), key)  # QK^T
+        attention_scores = torch.matmul(query.permute(0, 1, 3, 2), key)
         attention_scores = F.softmax(attention_scores, dim=-1)
-        out = torch.matmul(attention_scores, value.permute(0, 1, 3, 2))  # Softmax(QK^T)V
+        out = torch.matmul(attention_scores, value.permute(0, 1, 3, 2))
 
-        out = out.view(batch_size, self.filters, height, width)  # Restaurar dimensiones
+        out = out.view(batch_size, self.filters, height, width)
         out = self.projection_conv(out)
         
         return out
