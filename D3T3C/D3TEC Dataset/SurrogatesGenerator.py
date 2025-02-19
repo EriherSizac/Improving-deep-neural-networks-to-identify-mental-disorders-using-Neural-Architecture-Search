@@ -573,7 +573,7 @@ class BuildPyTorchModel(nn.Module):
     def forward(self, x):
         if self.initial_conv is not None:
             x = self.initial_conv(x)
-        x = checkpoint.checkpoint(self.feature_extractor, x)
+        x = checkpoint.checkpoint(self.forward_features, x, use_reentrant=False)
         for i, module in enumerate(self.feature_extractor):
             # Si el módulo es BatchNorm2d pero la entrada es 2D (después del Flatten)
             if isinstance(module, nn.BatchNorm2d):
@@ -1161,7 +1161,7 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.BCEWithLogitsLoss()
-    scaler = GradScaler()  # Inicializamos el GradScaler para mixed precision
+    scaler = GradScaler(device='cuda')
 
     for epoch in range(config.epochs):
         model.train()
@@ -1172,7 +1172,7 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
             optimizer.zero_grad()
 
             # Usamos autocast para ejecutar en FP16 donde sea posible
-            with autocast():
+            with autocast(device_type='cuda'):
                 outputs = model(inputs)
                 labels = labels.view(-1, 1)
                 loss = criterion(outputs, labels)
