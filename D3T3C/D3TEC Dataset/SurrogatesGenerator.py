@@ -261,7 +261,7 @@ def encode_model_architecture(model_dict, max_alleles=48):
 def fixArch(encoded_model, verbose=False):
     """
     Corrige la arquitectura codificada del modelo, asegurando que:
-    - Se evite la presencia de capas incompatibles después de una capa Flatten.
+    - Se evite la presencia de capas incompatibles después de una capa Dense.
     - En caso de una capa de Repetition, se ajuste el alcance de repetición si no hay suficientes capas anteriores.
     - Limita la arquitectura a una sola capa de SelfAttention.
     
@@ -272,40 +272,42 @@ def fixArch(encoded_model, verbose=False):
     Returns:
         list: Lista con la arquitectura corregida, truncada a un máximo de 48 alelos.
     """
-
+    
     fixed_layers = []  # Lista que almacenará la arquitectura corregida
     input_is_flattened = False  # Indicador para saber si ya hay una capa Flatten en el modelo
-    index = 0  # Índice para recorrer el modelo codificado
+    dense_started = False       # Indicador para saber si ya se ha encontrado una capa Dense
+    index = 0                   # Índice para recorrer el modelo codificado
     found_self_attention = False  # Flag para rastrear la primera aparición de SelfAttention
 
-    # Procesar cada capa en el modelo sin forzar la primera capa a ser específica
     while index < len(encoded_model) and len(fixed_layers) < 48:
         layer_type = int(encoded_model[index])  # Obtener el tipo de capa actual
 
+        # Si ya se ha procesado una capa Dense, sólo se permiten Dense, BatchNorm o DontCare
+        if dense_started and layer_type not in [4, 1, 7]:
+            if verbose:
+                print(f"Se encontró una capa de tipo {layer_type} después de una Dense, reemplazando con DontCare")
+            fixed_layers.extend([7, 0, 0, 0])
+            index += 4
+            continue
+
         # Procesar la capa de Repetition
         if layer_type == 8:
-            repetition_layers = int(encoded_model[index + 1])  # Número de capas a repetir
-            repetition_count = min(max(int(encoded_model[index + 2]), 0), 32)  # Cantidad de repeticiones
-
-            # Verificar si hay suficientes capas para la repetición solicitada
+            repetition_layers = int(encoded_model[index + 1])
+            repetition_count = min(max(int(encoded_model[index + 2]), 0), 32)
             actual_layers_to_repeat = min(repetition_layers, len(fixed_layers) // 4)
-
             if actual_layers_to_repeat != repetition_layers:
                 if verbose:
                     print(f"Ajustando alcance de repetición de {repetition_layers} a {actual_layers_to_repeat} debido a falta de capas.")
                 repetition_layers = actual_layers_to_repeat
-
-            # Añadir la capa de repetición sin modificar su estructura
             fixed_layers.extend([layer_type, repetition_layers, repetition_count, 0])
             index += 4
             continue
 
-        # Procesar cada tipo de capa normal con sus restricciones
+        # Procesar cada tipo de capa normal
         if layer_type == 0:  # Conv2D
             if input_is_flattened:
                 fixed_layers.extend([7, 0, 0, 0])  # DontCare
             else:
-                # Limitar el número de filtros entre 4 y 32
                 filters = min(max(int(encoded_model[index + 1]), 4), 32)
                 stride_idx = min(max(int(encoded_model[index + 2]), 0), 1)
                 activation_idx = min(max(int(encoded_model[index + 3]), 0), 3)
@@ -313,20 +315,19 @@ def fixArch(encoded_model, verbose=False):
 
         elif layer_type == 6:  # SelfAttention
             if input_is_flattened or found_self_attention:
-                fixed_layers.extend([7, 0, 0, 0])  # Reemplazar SelfAttention extra con DontCare
+                fixed_layers.extend([7, 0, 0, 0])
                 if verbose and found_self_attention:
                     print("Capa SelfAttention adicional reemplazada con DontCare.")
             else:
-                # Añadir la primera capa SelfAttention
-                filters = min(max(int(encoded_model[index + 1]), 4), 64)  # Limitar filtros [4, 64]
-                attention_heads = min(max(int(encoded_model[index + 2]), 1), 4)  # Limitar cabezas [1, 4]
+                filters = min(max(int(encoded_model[index + 1]), 4), 64)
+                attention_heads = min(max(int(encoded_model[index + 2]), 1), 4)
                 activation_idx = min(max(int(encoded_model[index + 3]), 0), 3)
                 fixed_layers.extend([layer_type, filters, attention_heads, activation_idx])
-                found_self_attention = True  # Marcar que ya se añadió una SelfAttention
+                found_self_attention = True
 
         elif layer_type == 2:  # MaxPooling
             if input_is_flattened:
-                fixed_layers.extend([7, 0, 0, 0])  # DontCare
+                fixed_layers.extend([7, 0, 0, 0])
             else:
                 stride_idx = min(max(int(encoded_model[index + 1]), 0), 1)
                 fixed_layers.extend([layer_type, stride_idx, 0, 0])
@@ -336,58 +337,51 @@ def fixArch(encoded_model, verbose=False):
             fixed_layers.extend([layer_type, rate_idx, 0, 0])
 
         elif layer_type == 4:  # Dense
-            # Limitar el número de neuronas entre 1 y 512
             neurons = min(max(int(encoded_model[index + 1]), 1), 512)
             activation_idx = min(max(int(encoded_model[index + 2]), 0), 3)
             fixed_layers.extend([layer_type, neurons, activation_idx, 0])
+            dense_started = True  # Una vez que aparece una capa Dense, marcamos la bandera.
 
         elif layer_type == 1:  # BatchNorm
-    # 📌 Asegurar que el número de canales (C) sea el actual en la arquitectura
             if len(fixed_layers) > 0:
-                prev_layer = fixed_layers[-4:]  # Última capa agregada
-                prev_layer_type = prev_layer[0]  # Tipo de capa anterior
-                
-                # Obtener número de canales del output de la última capa convolucional o SelfAttention
-                if prev_layer_type in [0, 6]:  # Conv2D o SelfAttention
-                    num_features = prev_layer[1]  # Número de filtros de la última capa
-                
+                prev_layer = fixed_layers[-4:]
+                prev_layer_type = prev_layer[0]
+                if prev_layer_type in [0, 6]:
+                    num_features = prev_layer[1]
                 else:
-                    num_features = 4  # Default si no hay capas anteriores relevantes
-                
+                    num_features = 4
             else:
-                num_features = 4  # Si BatchNorm es la primera capa, asignar 4 por defecto
-
-            print(f"📌 Configurando BatchNorm con {num_features} canales")
-            fixed_layers.extend([layer_type, num_features, 0, 0])  # Guardar num_features
-
+                num_features = 4
+            if verbose:
+                print(f"📌 Configurando BatchNorm con {num_features} canales")
+            fixed_layers.extend([layer_type, num_features, 0, 0])
 
         elif layer_type == 5:  # Flatten
-            if input_is_flattened:
-                fixed_layers.extend([7, 0, 0, 0])  # Reemplazar Flatten adicional con DontCare
+            if input_is_flattened or dense_started:
+                fixed_layers.extend([7, 0, 0, 0])
             else:
-                # Verificar que la siguiente capa sea una capa densa
                 if index + 4 < len(encoded_model):
                     next_layer_type = int(encoded_model[index + 4])
-                    if next_layer_type not in [4, 7]:  # Solo debe ir antes de Dense o DontCare
-                        print(f"⚠️ WARNING: Flatten seguido de {next_layer_type}, reemplazando con DontCare")
+                    if next_layer_type not in [4, 7]:  # Flatten debería ir seguido de Dense o DontCare
+                        if verbose:
+                            print(f"⚠️ WARNING: Flatten seguido de {next_layer_type}, reemplazando con DontCare")
                         fixed_layers.extend([7, 0, 0, 0])
                     else:
                         fixed_layers.extend([layer_type, 0, 0, 0])
-                        input_is_flattened = True  # Marcar que ya hay un Flatten
+                        input_is_flattened = True
                 else:
                     fixed_layers.extend([layer_type, 0, 0, 0])
-                    input_is_flattened = True  # Marcar que ya hay un Flatten
-
+                    input_is_flattened = True
 
         elif layer_type == 7:  # DontCare
             fixed_layers.extend([layer_type, 0, 0, 0])
 
-        else:  # Cualquier otro tipo de capa desconocida
-            fixed_layers.extend([7, 0, 0, 0])  # Reemplazar con DontCare
+        else:  # Cualquier otro tipo
+            fixed_layers.extend([7, 0, 0, 0])
 
-        index += 4  # Avanzar al siguiente grupo de parámetros
+        index += 4
 
-    return fixed_layers[:48]  # Limitar a 48 alelos
+    return fixed_layers[:48]
 
 
 # %%
