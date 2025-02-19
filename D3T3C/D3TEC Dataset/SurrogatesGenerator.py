@@ -524,6 +524,7 @@ class BuildPyTorchModel(nn.Module):
         super(BuildPyTorchModel, self).__init__()
         self.verbose = verbose
         model_dict = decode_model_architecture(model_dict)
+        print(model_dict)
 
         target_in_channels = 4  # Número mínimo de canales requeridos en la arquitectura
         layers = []
