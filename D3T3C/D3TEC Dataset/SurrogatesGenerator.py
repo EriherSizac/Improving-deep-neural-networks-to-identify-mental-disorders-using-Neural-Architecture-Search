@@ -1006,17 +1006,19 @@ class AudioDataset(Dataset):
 
         spec = torchaudio.transforms.AmplitudeToDB()(spec)
         spec = (spec - spec.min()) / (spec.max() - spec.min())
-
-        tensor_spec = torch.tensor(spec, dtype=torch.float32)  # Forma: (n_mels, time)
         
-        # Redimensionar a 128x128 usando interpolate:
-        # Primero, agregar dimensiones de batch y canal: (1, 1, n_mels, time)
-        tensor_spec = tensor_spec.unsqueeze(0).unsqueeze(0)
+        # En lugar de torch.tensor(spec, ...) usamos clone().detach() para copiar el tensor
+        tensor_spec = spec.clone().detach().float()  # Forma: (n_mels, time)  -> (64, 552)
+        
+        # Agregar dimensiones para tener formato (N, C, H, W)
+        tensor_spec = tensor_spec.unsqueeze(0).unsqueeze(0)  # Ahora: (1, 1, 64, 552)
         tensor_spec = F.interpolate(tensor_spec, size=(128, 128), mode='bilinear', align_corners=False)
-        tensor_spec = tensor_spec.squeeze(0).squeeze(0)  # Volver a la forma (128, 128)
+        # Eliminar las dimensiones agregadas para retornar un tensor 2D
+        tensor_spec = tensor_spec.squeeze(0).squeeze(0)  # Resultado: (128, 128)
         
         print(f"📌 Espectrograma generado - Shape: {tensor_spec.shape}")
         return tensor_spec
+
 
 
     
