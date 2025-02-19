@@ -1161,7 +1161,8 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.BCEWithLogitsLoss()
-    scaler = GradScaler(device='cuda')
+    scaler = GradScaler('cuda')
+
 
     for epoch in range(config.epochs):
         model.train()
