@@ -571,7 +571,7 @@ class BuildPyTorchModel(nn.Module):
     def forward(self, x):
         if self.initial_conv is not None:
             x = self.initial_conv(x)
-        x = checkpoint.checkpoint(self.forward_features, x, use_reentrant=False)
+        # x = checkpoint.checkpoint(self.forward_features, x, use_reentrant=False)
         for i, module in enumerate(self.feature_extractor):
             # Si el módulo es BatchNorm2d pero la entrada es 2D (después del Flatten)
             if isinstance(module, nn.BatchNorm2d):
