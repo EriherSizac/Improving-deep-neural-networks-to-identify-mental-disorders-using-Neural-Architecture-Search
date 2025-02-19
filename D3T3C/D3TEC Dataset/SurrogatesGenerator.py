@@ -146,17 +146,18 @@ class SelfAttention(nn.Module):
         self.activation = activation
         self.verbose = verbose
 
-        # Capas convolucionales para Q, K y V; se asume que la entrada tendrá self.filters canales
+        # Convoluciones 1x1 para Q, K y V; se asume que la entrada tendrá self.filters canales
         self.query_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
         self.key_conv   = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
         self.value_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
         self.projection_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
-        # Capa para ajustar el número de canales de la entrada (se crea de forma lazy)
+        # Capa para ajustar canales (creada de forma lazy)
         self.channel_adjust = None
 
     def forward(self, x):
         batch_size, channels, height, width = x.shape
-        # Si la entrada no tiene self.filters canales, se ajusta:
+        
+        # Ajustar el número de canales si es necesario
         if channels != self.filters:
             if self.channel_adjust is None or self.channel_adjust.in_channels != channels:
                 self.channel_adjust = nn.Conv2d(channels, self.filters, kernel_size=1).to(x.device)
@@ -164,44 +165,42 @@ class SelfAttention(nn.Module):
                     print(f"SelfAttentionLinear: Creando capa de ajuste para pasar de {channels} a {self.filters} canales.")
             x = self.channel_adjust(x)
         
-        # Cálculo de Q, K y V
-        Q = self.query_conv(x)  # (B, self.filters, H, W)
+        # Calcular Q, K y V
+        Q = self.query_conv(x)  # Esperamos que Q tenga forma (B, self.filters, Hq, Wq)
         K = self.key_conv(x)
         V = self.value_conv(x)
         
-        # Reshape a (B, heads, N, d) donde d = self.filters / attention_heads y N = H * W
-        d = self.filters // self.attention_heads
-        N = height * width
-        Q = Q.view(batch_size, self.attention_heads, d, N).permute(0, 1, 3, 2)  # (B, heads, N, d)
-        K = K.view(batch_size, self.attention_heads, d, N).permute(0, 1, 3, 2)
-        V = V.view(batch_size, self.attention_heads, d, N).permute(0, 1, 3, 2)
+        # Extraer dimensiones reales de Q
+        B, C, Hq, Wq = Q.shape
+        N = Hq * Wq
+        d = self.filters // self.attention_heads  # Número de canales por cabeza
+
+        # Reestructurar Q, K y V usando las dimensiones reales de Q
+        Q = Q.view(B, self.attention_heads, d, N).permute(0, 1, 3, 2)  # (B, heads, N, d)
+        K = K.view(B, self.attention_heads, d, N).permute(0, 1, 3, 2)
+        V = V.view(B, self.attention_heads, d, N).permute(0, 1, 3, 2)
         
-        # Función de activación para la atención lineal: φ(x) = elu(x) + 1
+        # Función φ(x) = elu(x) + 1 para atención lineal
         phi = lambda x: F.elu(x) + 1
-        phi_Q = phi(Q)  # (B, heads, N, d)
-        phi_K = phi(K)  # (B, heads, N, d)
+        phi_Q = phi(Q)
+        phi_K = phi(K)
         
-        # Cálculo del numerador: φ(Q) · (φ(K)^T V)
-        # Primero, computamos M = φ(K)^T V, donde la multiplicación se realiza sobre la dimensión de N:
+        # Calcular el numerador: φ(Q) · (φ(K)^T V)
         M = torch.matmul(phi_K.transpose(-2, -1), V)  # (B, heads, d, d)
-        numerator = torch.matmul(phi_Q, M)  # (B, heads, N, d)
+        numerator = torch.matmul(phi_Q, M)              # (B, heads, N, d)
         
-        # Cálculo del denominador: φ(Q) · (φ(K)^T 1)
+        # Calcular el denominador: φ(Q) · (φ(K)^T 1)
         ones = torch.ones(phi_K.size()[:-1] + (1,), device=phi_K.device)  # (B, heads, N, 1)
         M_den = torch.matmul(phi_K.transpose(-2, -1), ones)  # (B, heads, d, 1)
-        denominator = torch.matmul(phi_Q, M_den)  # (B, heads, N, 1)
+        denominator = torch.matmul(phi_Q, M_den)              # (B, heads, N, 1)
         
-        # Evitar división por cero:
+        # División segura
         out = numerator / (denominator + 1e-6)  # (B, heads, N, d)
         
-        # Reorganizar de nuevo a (B, self.filters, H, W)
-        out = out.permute(0, 1, 3, 2).contiguous()  # (B, heads, d, N)
-        out = out.view(batch_size, self.filters, height, width)
-        
-        # Proyección final:
+        # Reorganizar para recuperar la forma (B, self.filters, Hq, Wq)
+        out = out.permute(0, 1, 3, 2).contiguous().view(B, self.filters, Hq, Wq)
         out = self.projection_conv(out)
         return out
-
 
 
 
