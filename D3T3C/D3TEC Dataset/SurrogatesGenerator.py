@@ -585,10 +585,12 @@ class BuildPyTorchModel(nn.Module):
                 layers.append(nn.ReLU() if layer['activation'] == "relu" else nn.LeakyReLU())
                 in_channels = layer['filters']
             elif layer['type'] == 'SelfAttention':
-                layers.append(SelfAttention(filters=in_channels,
+                layers.append(SelfAttention(filters=layer['filters'],
                                             attention_heads=layer['attention_heads'],
                                             activation=layer['activation'],
                                             verbose=self.verbose))
+                in_channels = layer['filters']  # Actualiza in_channels según lo codificado
+
             elif layer['type'] == 'BatchNorm':
                 # Se inicia con BatchNorm2d, pero se ajustará en forward si es necesario.
                 layers.append(nn.BatchNorm2d(in_channels))
