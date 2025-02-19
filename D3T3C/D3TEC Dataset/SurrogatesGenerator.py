@@ -132,7 +132,7 @@ def decode_layer_params(encoded_params):
 # %%
 
 
-class SelfAttentionLinear(nn.Module):
+class SelfAttention(nn.Module):
     def __init__(self, filters, attention_heads=4, activation=nn.ReLU(), verbose=False):
         super(SelfAttentionLinear, self).__init__()
         # Aseguramos que filters sea divisible por attention_heads
