@@ -22,7 +22,8 @@ from torch.utils.data import TensorDataset, DataLoader,Dataset
 import json
 import torch.multiprocessing as mp
 import torchaudio.transforms as T
-
+from torch.cuda.amp import autocast, GradScaler
+import torch.utils.checkpoint as checkpoint
 torch.cuda.memory_summary()
 
 
@@ -572,7 +573,7 @@ class BuildPyTorchModel(nn.Module):
     def forward(self, x):
         if self.initial_conv is not None:
             x = self.initial_conv(x)
-
+        x = checkpoint.checkpoint(self.feature_extractor, x)
         for i, module in enumerate(self.feature_extractor):
             # Si el módulo es BatchNorm2d pero la entrada es 2D (después del Flatten)
             if isinstance(module, nn.BatchNorm2d):
@@ -1160,6 +1161,7 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.BCEWithLogitsLoss()
+    scaler = GradScaler()  # Inicializamos el GradScaler para mixed precision
 
     for epoch in range(config.epochs):
         model.train()
@@ -1169,17 +1171,18 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
             inputs, labels = inputs.to(device), labels.float().to(device)
             optimizer.zero_grad()
 
-            outputs = model(inputs)
-            # Se comenta la línea de flatten para ver la salida original:
-            # outputs = outputs.view(-1)
-            labels = labels.view(-1, 1)
-            print(f"📌 Epoch {epoch+1}: Outputs shape (sin view): {outputs.shape}")
-
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
+            # Usamos autocast para ejecutar en FP16 donde sea posible
+            with autocast():
+                outputs = model(inputs)
+                labels = labels.view(-1, 1)
+                loss = criterion(outputs, labels)
+            
+            # Escalamos la pérdida y ejecutamos el backward
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+            
             running_loss += loss.item()
-
         print(f"🔹 Epoch [{epoch+1}/{config.epochs}] - Loss: {running_loss / len(train_loader):.4f}")
 
     print("📌 Entrenamiento finalizado. Evaluando en test...")
