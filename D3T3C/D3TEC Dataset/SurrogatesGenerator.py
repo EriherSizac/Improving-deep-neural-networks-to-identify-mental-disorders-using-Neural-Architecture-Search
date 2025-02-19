@@ -962,7 +962,7 @@ class AudioDataset(Dataset):
         spectrogram = self._generate_spectrogram(waveform)
         return spectrogram, label
     
-    def _generate_spectrogram(self, waveform):
+    def _dgenerate_spectrogram(self, waveform):
         """Convierte audio en espectrograma Mel y lo normaliza."""
         n_mels = 64
         sample_rate = 16000  # Aseguramos que sea consistente
@@ -986,6 +986,38 @@ class AudioDataset(Dataset):
         tensor_spec = torch.tensor(spec, dtype=torch.float32)
         print(f"📌 Espectrograma generado - Shape: {tensor_spec.shape}")
         return tensor_spec
+    import torch.nn.functional as F
+
+    def _generate_spectrogram(self, waveform):
+        """Convierte audio en espectrograma Mel, lo normaliza y lo redimensiona a 128x128."""
+        n_mels = 64
+        sample_rate = 16000  # Aseguramos que sea consistente
+        n_fft = int(sample_rate * 0.029)
+        hop_length = int(sample_rate * 0.010)
+        win_length = int(sample_rate * 0.025)
+
+        spec = torchaudio.transforms.MelSpectrogram(
+            sample_rate=sample_rate,
+            n_fft=n_fft,
+            n_mels=n_mels,
+            hop_length=hop_length,
+            win_length=win_length
+        )(waveform)
+
+        spec = torchaudio.transforms.AmplitudeToDB()(spec)
+        spec = (spec - spec.min()) / (spec.max() - spec.min())
+
+        tensor_spec = torch.tensor(spec, dtype=torch.float32)  # Forma: (n_mels, time)
+        
+        # Redimensionar a 128x128 usando interpolate:
+        # Primero, agregar dimensiones de batch y canal: (1, 1, n_mels, time)
+        tensor_spec = tensor_spec.unsqueeze(0).unsqueeze(0)
+        tensor_spec = F.interpolate(tensor_spec, size=(128, 128), mode='bilinear', align_corners=False)
+        tensor_spec = tensor_spec.squeeze(0).squeeze(0)  # Volver a la forma (128, 128)
+        
+        print(f"📌 Espectrograma generado - Shape: {tensor_spec.shape}")
+        return tensor_spec
+
 
     
 # 📌 Mostrar los dos primeros espectrogramas generados
