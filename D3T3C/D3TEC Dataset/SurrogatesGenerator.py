@@ -569,7 +569,10 @@ class BuildPyTorchModel(nn.Module):
                 layers.append(DontCareLayer())
 
         self.feature_extractor = nn.Sequential(*layers)
-
+    def forward_features(self, x):
+        for module in self.feature_extractor:
+            x = module(x)
+        return x
     def forward(self, x):
         if self.initial_conv is not None:
             x = self.initial_conv(x)
