@@ -1161,8 +1161,6 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.BCEWithLogitsLoss()
-    scaler = GradScaler('cuda')
-
 
     for epoch in range(config.epochs):
         model.train()
@@ -1172,18 +1170,14 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
             inputs, labels = inputs.to(device), labels.float().to(device)
             optimizer.zero_grad()
 
-            # Usamos autocast para ejecutar en FP16 donde sea posible
-            with autocast():
-                outputs = model(inputs)
-                labels = labels.view(-1, 1)
-                loss = criterion(outputs, labels)
+            outputs = model(inputs)
+            labels = labels.view(-1, 1)
+            loss = criterion(outputs, labels)
             
-            # Escalamos la pérdida y ejecutamos el backward
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-            
+            loss.backward()
+            optimizer.step()
             running_loss += loss.item()
+        
         print(f"🔹 Epoch [{epoch+1}/{config.epochs}] - Loss: {running_loss / len(train_loader):.4f}")
 
     print("📌 Entrenamiento finalizado. Evaluando en test...")
@@ -1194,8 +1188,7 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
         for inputs, labels in test_loader:
             inputs, labels = inputs.to(device), labels.float().to(device)
             labels = labels.view(-1, 1)
-            outputs = model(inputs).squeeze()  # Aquí se deja el squeeze para evitar dimensiones extra en batch
-            print(f"📌 Test batch - Outputs shape: {outputs.shape}")
+            outputs = model(inputs).squeeze()  # Asegúrate que squeeze() no elimine la dimensión batch
             predictions = (torch.sigmoid(outputs) > 0.5).int()
             y_true.extend(labels.cpu().numpy().tolist())
             y_pred.extend(predictions.cpu().numpy().tolist())
@@ -1204,6 +1197,7 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
     precision, recall, f1, specificity = calculate_metrics(y_true, y_pred)
 
     return [running_loss / len(train_loader), accuracy, precision, recall, f1, specificity]
+
 
 
 
