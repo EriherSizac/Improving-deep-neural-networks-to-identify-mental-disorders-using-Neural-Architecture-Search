@@ -1173,7 +1173,7 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
             optimizer.zero_grad()
 
             # Usamos autocast para ejecutar en FP16 donde sea posible
-            with autocast('cuda'):
+            with autocast('cuda', True):
                 outputs = model(inputs)
                 labels = labels.view(-1, 1)
                 loss = criterion(outputs, labels)
