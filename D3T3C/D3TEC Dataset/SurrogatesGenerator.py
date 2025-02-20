@@ -135,7 +135,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -216,8 +215,6 @@ class SelfAttention(nn.Module):
         out = out.permute(0, 1, 3, 2).contiguous().view(B, self.filters, Hq, Wq)
         out = self.projection_conv(out)
         return out
-
-
 
 
 
