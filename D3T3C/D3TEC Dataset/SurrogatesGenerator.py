@@ -136,11 +136,18 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 class SelfAttention(nn.Module):
     def __init__(self, filters, attention_heads=4, activation=nn.ReLU(), verbose=False, max_input_channels=64):
+        """
+        Atención lineal que evita la explosión de memoria calculando la atención de forma lineal.
+        Para ajustar el número de canales de la entrada a 'filters', se registran parámetros de conversión.
+        """
         super(SelfAttention, self).__init__()
-        # Ajustar filters para que sea divisible por attention_heads
+        # Aseguramos que filters sea divisible por attention_heads
         if filters % attention_heads != 0:
             if verbose:
                 print(f"Warning: {filters} no es divisible por {attention_heads}. Ajustando filters.")
@@ -157,30 +164,25 @@ class SelfAttention(nn.Module):
         self.value_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
         self.projection_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
         
-        # Preinicializamos un ModuleDict para ajustar el número de canales de la entrada.
-        self.channel_adjust_cache = nn.ModuleDict({
-            str(c): nn.Conv2d(c, self.filters, kernel_size=1) for c in range(1, max_input_channels + 1)
-        })
-
+        # Parámetros para ajustar canales de entrada a self.filters.
+        # Se asume que el número máximo de canales de entrada es 'max_input_channels'.
+        self.max_input_channels = max_input_channels
+        self.channel_adjust_weight = nn.Parameter(torch.randn(self.filters, max_input_channels, 1, 1))
+        self.channel_adjust_bias = nn.Parameter(torch.zeros(self.filters))
+        
     def forward(self, x):
-        B, channels, height, width = x.shape
-        
-        # Si la entrada no tiene self.filters canales, se ajusta con la capa preinicializada.
+        B, channels, H, W = x.shape
+        # Si la entrada no tiene self.filters canales, se ajusta mediante una convolución con parámetros predefinidos.
         if channels != self.filters:
-            key = str(channels)
-            if key not in self.channel_adjust_cache:
-                conv_layer = nn.Conv2d(channels, self.filters, kernel_size=1).to(x.device)
-                self.channel_adjust_cache[key] = conv_layer
-                self.add_module(f"channel_adjust_{channels}", conv_layer)
-                if self.verbose:
-                    print(f"SelfAttentionLinear: Creando capa de ajuste para pasar de {channels} a {self.filters} canales.")
-            # Forzar que x sea contiguo para evitar errores de alineación
-            if not x.is_contiguous():
-                x = x.contiguous()
-            x = self.channel_adjust_cache[key](x)
+            if channels > self.max_input_channels:
+                raise ValueError(f"Input channels ({channels}) exceden max_input_channels ({self.max_input_channels}).")
+            weight = self.channel_adjust_weight[:, :channels, :, :]
+            bias = self.channel_adjust_bias
+            # Usamos F.conv2d para la conversión; esto usa parámetros ya registrados.
+            x = F.conv2d(x, weight, bias, stride=1, padding=0)
         
-        # Calcular Q, K y V
-        Q = self.query_conv(x)  # (B, self.filters, Hq, Wq)
+        # Ahora, x tiene self.filters canales.
+        Q = self.query_conv(x)
         K = self.key_conv(x)
         V = self.value_conv(x)
         
@@ -194,16 +196,16 @@ class SelfAttention(nn.Module):
         K = K.view(B, self.attention_heads, d, N).permute(0, 1, 3, 2)
         V = V.view(B, self.attention_heads, d, N).permute(0, 1, 3, 2)
         
-        # Función de atención lineal: φ(x) = elu(x) + 1
+        # Atención lineal: usamos φ(x)=elu(x)+1
         phi = lambda x: F.elu(x) + 1
         phi_Q = phi(Q)
         phi_K = phi(K)
         
-        # Calcular el numerador: φ(Q) · (φ(K)^T V)
+        # Numerador: φ(Q) · (φ(K)^T V)
         M = torch.matmul(phi_K.transpose(-2, -1), V)  # (B, heads, d, d)
         numerator = torch.matmul(phi_Q, M)              # (B, heads, N, d)
         
-        # Calcular el denominador: φ(Q) · (φ(K)^T 1)
+        # Denominador: φ(Q) · (φ(K)^T 1)
         ones = torch.ones(phi_K.size()[:-1] + (1,), device=phi_K.device)  # (B, heads, N, 1)
         M_den = torch.matmul(phi_K.transpose(-2, -1), ones)                # (B, heads, d, 1)
         denominator = torch.matmul(phi_Q, M_den)                           # (B, heads, N, 1)
