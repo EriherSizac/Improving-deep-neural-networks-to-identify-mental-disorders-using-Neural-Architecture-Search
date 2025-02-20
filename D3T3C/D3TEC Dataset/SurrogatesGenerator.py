@@ -135,6 +135,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
+
 class SelfAttention(nn.Module):
     def __init__(self, filters, attention_heads=4, activation=nn.ReLU(), verbose=False, max_input_channels=64):
         super(SelfAttention, self).__init__()
@@ -150,37 +152,35 @@ class SelfAttention(nn.Module):
         self.verbose = verbose
 
         # Capas convolucionales para Q, K, V y proyección final.
-        # Se asume que la entrada a esta capa tendrá self.filters canales,
-        # por lo que si no es así se aplicará una conversión.
         self.query_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
         self.key_conv   = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
         self.value_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
         self.projection_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
         
-        # Preinicializar un ModuleDict para ajustar el número de canales de la entrada.
-        # Se crean módulos para claves de 1 a max_input_channels.
+        # Preinicializamos un ModuleDict para ajustar el número de canales de la entrada.
         self.channel_adjust_cache = nn.ModuleDict({
             str(c): nn.Conv2d(c, self.filters, kernel_size=1) for c in range(1, max_input_channels + 1)
         })
-        
+
     def forward(self, x):
         B, channels, height, width = x.shape
         
-        # Si la entrada no tiene self.filters canales, se ajusta usando la capa preinicializada.
+        # Si la entrada no tiene self.filters canales, se ajusta con la capa preinicializada.
         if channels != self.filters:
             key = str(channels)
             if key not in self.channel_adjust_cache:
-                # En caso de que channels sea mayor al rango preinicializado,
-                # se crea dinámicamente y se añade al ModuleDict.
                 conv_layer = nn.Conv2d(channels, self.filters, kernel_size=1).to(x.device)
                 self.channel_adjust_cache[key] = conv_layer
                 self.add_module(f"channel_adjust_{channels}", conv_layer)
                 if self.verbose:
                     print(f"SelfAttentionLinear: Creando capa de ajuste para pasar de {channels} a {self.filters} canales.")
+            # Forzar que x sea contiguo para evitar errores de alineación
+            if not x.is_contiguous():
+                x = x.contiguous()
             x = self.channel_adjust_cache[key](x)
         
         # Calcular Q, K y V
-        Q = self.query_conv(x)  # Forma: (B, self.filters, Hq, Wq)
+        Q = self.query_conv(x)  # (B, self.filters, Hq, Wq)
         K = self.key_conv(x)
         V = self.value_conv(x)
         
@@ -194,16 +194,16 @@ class SelfAttention(nn.Module):
         K = K.view(B, self.attention_heads, d, N).permute(0, 1, 3, 2)
         V = V.view(B, self.attention_heads, d, N).permute(0, 1, 3, 2)
         
-        # Atención lineal: usar φ(x)=elu(x)+1
+        # Función de atención lineal: φ(x) = elu(x) + 1
         phi = lambda x: F.elu(x) + 1
         phi_Q = phi(Q)
         phi_K = phi(K)
         
-        # Calcular el numerador: φ(Q) * (φ(K)^T V)
+        # Calcular el numerador: φ(Q) · (φ(K)^T V)
         M = torch.matmul(phi_K.transpose(-2, -1), V)  # (B, heads, d, d)
         numerator = torch.matmul(phi_Q, M)              # (B, heads, N, d)
         
-        # Calcular el denominador: φ(Q) * (φ(K)^T 1)
+        # Calcular el denominador: φ(Q) · (φ(K)^T 1)
         ones = torch.ones(phi_K.size()[:-1] + (1,), device=phi_K.device)  # (B, heads, N, 1)
         M_den = torch.matmul(phi_K.transpose(-2, -1), ones)                # (B, heads, d, 1)
         denominator = torch.matmul(phi_Q, M_den)                           # (B, heads, N, 1)
@@ -214,6 +214,7 @@ class SelfAttention(nn.Module):
         out = out.permute(0, 1, 3, 2).contiguous().view(B, self.filters, Hq, Wq)
         out = self.projection_conv(out)
         return out
+
 
 
 
