@@ -132,10 +132,14 @@ def decode_layer_params(encoded_params):
 # %%
 
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 class SelfAttention(nn.Module):
     def __init__(self, filters, attention_heads=4, activation=nn.ReLU(), verbose=False):
         super(SelfAttention, self).__init__()
-        # Aseguramos que filters sea divisible por attention_heads
+        # Ajustar filters para que sea divisible por attention_heads
         if filters % attention_heads != 0:
             if verbose:
                 print(f"Warning: {filters} no es divisible por {attention_heads}. Ajustando filters.")
@@ -151,19 +155,20 @@ class SelfAttention(nn.Module):
         self.key_conv   = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
         self.value_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
         self.projection_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
-        # Usamos ModuleDict para almacenar las capas de ajuste, asegurando que se registren como submódulos
+        # Usamos un ModuleDict para almacenar las capas de ajuste (channel conversion)
         self.channel_adjust_cache = nn.ModuleDict()
 
     def forward(self, x):
         B, channels, height, width = x.shape
         
-        # Si la entrada no tiene self.filters canales, se ajusta usando una capa conv1x1 registrada en channel_adjust_cache.
+        # Si la entrada no tiene self.filters canales, se ajusta mediante una capa conv1x1.
         if channels != self.filters:
             key = str(channels)
             if key not in self.channel_adjust_cache:
-                conv_layer = nn.Conv2d(channels, self.filters, kernel_size=1)
-                # No es necesario llamar a .to(x.device) aquí porque DataParallel se encargará de replicarlo
+                # Crear la capa en el mismo dispositivo que x y registrar en el ModuleDict
+                conv_layer = nn.Conv2d(channels, self.filters, kernel_size=1).to(x.device)
                 self.channel_adjust_cache[key] = conv_layer
+                self.add_module(f"channel_adjust_{channels}", conv_layer)
                 if self.verbose:
                     print(f"SelfAttentionLinear: Creando capa de ajuste para pasar de {channels} a {self.filters} canales.")
             x = self.channel_adjust_cache[key](x)
@@ -176,30 +181,30 @@ class SelfAttention(nn.Module):
         # Extraer dimensiones reales de Q
         B, C, Hq, Wq = Q.shape
         N = Hq * Wq
-        d = self.filters // self.attention_heads  # canales por cabeza
+        d = self.filters // self.attention_heads  # Número de canales por cabeza
 
         # Reestructurar Q, K y V a (B, heads, N, d)
-        Q = Q.view(B, self.attention_heads, d, N).permute(0, 1, 3, 2)
+        Q = Q.view(B, self.attention_heads, d, N).permute(0, 1, 3, 2)  # (B, heads, N, d)
         K = K.view(B, self.attention_heads, d, N).permute(0, 1, 3, 2)
         V = V.view(B, self.attention_heads, d, N).permute(0, 1, 3, 2)
         
-        # Atención lineal: usar φ(x)=elu(x)+1
+        # Función de atención lineal: φ(x) = elu(x) + 1
         phi = lambda x: F.elu(x) + 1
         phi_Q = phi(Q)
         phi_K = phi(K)
         
-        # Numerador: φ(Q) · (φ(K)^T V)
+        # Calcular el numerador: φ(Q) · (φ(K)^T V)
         M = torch.matmul(phi_K.transpose(-2, -1), V)  # (B, heads, d, d)
         numerator = torch.matmul(phi_Q, M)              # (B, heads, N, d)
         
-        # Denominador: φ(Q) · (φ(K)^T 1)
+        # Calcular el denominador: φ(Q) · (φ(K)^T 1)
         ones = torch.ones(phi_K.size()[:-1] + (1,), device=phi_K.device)  # (B, heads, N, 1)
         M_den = torch.matmul(phi_K.transpose(-2, -1), ones)                # (B, heads, d, 1)
         denominator = torch.matmul(phi_Q, M_den)                           # (B, heads, N, 1)
         
         out = numerator / (denominator + 1e-6)  # (B, heads, N, d)
         
-        # Reorganizar a (B, self.filters, Hq, Wq)
+        # Reorganizar la salida a (B, self.filters, Hq, Wq)
         out = out.permute(0, 1, 3, 2).contiguous().view(B, self.filters, Hq, Wq)
         out = self.projection_conv(out)
         return out
