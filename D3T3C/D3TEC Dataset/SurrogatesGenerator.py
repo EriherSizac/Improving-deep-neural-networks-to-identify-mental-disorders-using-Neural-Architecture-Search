@@ -135,85 +135,93 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 class SelfAttention(nn.Module):
-    def __init__(self, filters, attention_heads=4, activation=nn.ReLU(), verbose=False, max_input_channels=64):
+    def __init__(self, filters, window_size=8, attention_heads=4, activation=nn.ReLU(), verbose=False):
         """
-        Atención lineal que evita la explosión de memoria calculando la atención de forma lineal.
-        Para ajustar el número de canales de la entrada a 'filters', se registran parámetros de conversión.
+        Atención local: divide la entrada en ventanas y aplica atención dentro de cada ventana.
+        
+        Parámetros:
+            filters: número de canales de entrada (y salida). Se espera que sea divisible por attention_heads.
+            window_size: tamaño de la ventana (asume ventanas cuadradas).
+            attention_heads: número de cabezas de atención.
+            activation: función de activación (no se usa explícitamente en este ejemplo, pero se puede ampliar).
+            verbose: si es True, imprime mensajes de debug.
         """
         super(SelfAttention, self).__init__()
-        # Aseguramos que filters sea divisible por attention_heads
         if filters % attention_heads != 0:
             if verbose:
                 print(f"Warning: {filters} no es divisible por {attention_heads}. Ajustando filters.")
             filters = filters - (filters % attention_heads)
             filters = max(filters, attention_heads)
-        self.filters = max(4, filters)
-        self.attention_heads = min(max(1, attention_heads), 4)
-        self.activation = activation
+        self.filters = filters
+        self.attention_heads = attention_heads
+        self.window_size = window_size
         self.verbose = verbose
-
-        # Capas convolucionales para Q, K, V y proyección final.
+        self.d_head = self.filters // self.attention_heads  # canales por cabeza
+        
+        # Capas para proyectar Q, K y V en cada ventana
         self.query_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
         self.key_conv   = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
         self.value_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
+        # Proyección final
         self.projection_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
-        
-        # Parámetros para ajustar canales de entrada a self.filters.
-        # Se asume que el número máximo de canales de entrada es 'max_input_channels'.
-        self.max_input_channels = max_input_channels
-        self.channel_adjust_weight = nn.Parameter(torch.randn(self.filters, max_input_channels, 1, 1))
-        self.channel_adjust_bias = nn.Parameter(torch.zeros(self.filters))
-        
-    def forward(self, x):
-        B, channels, H, W = x.shape
-        # Si la entrada no tiene self.filters canales, se ajusta mediante una convolución con parámetros predefinidos.
-        if channels != self.filters:
-            if channels > self.max_input_channels:
-                raise ValueError(f"Input channels ({channels}) exceden max_input_channels ({self.max_input_channels}).")
-            weight = self.channel_adjust_weight[:, :channels, :, :]
-            bias = self.channel_adjust_bias
-            # Usamos F.conv2d para la conversión; esto usa parámetros ya registrados.
-            x = F.conv2d(x, weight, bias, stride=1, padding=0)
-        
-        # Ahora, x tiene self.filters canales.
-        Q = self.query_conv(x)
-        K = self.key_conv(x)
-        V = self.value_conv(x)
-        
-        # Extraer dimensiones reales de Q
-        B, C, Hq, Wq = Q.shape
-        N = Hq * Wq
-        d = self.filters // self.attention_heads  # canales por cabeza
 
-        # Reestructurar Q, K y V a (B, heads, N, d)
-        Q = Q.view(B, self.attention_heads, d, N).permute(0, 1, 3, 2)  # (B, heads, N, d)
-        K = K.view(B, self.attention_heads, d, N).permute(0, 1, 3, 2)
-        V = V.view(B, self.attention_heads, d, N).permute(0, 1, 3, 2)
+    def forward(self, x):
+        """
+        x: tensor de forma (B, C, H, W), donde C == self.filters.
+        """
+        B, C, H, W = x.shape
+        ws = self.window_size
         
-        # Atención lineal: usamos φ(x)=elu(x)+1
-        phi = lambda x: F.elu(x) + 1
-        phi_Q = phi(Q)
-        phi_K = phi(K)
+        # Si H o W no son divisibles por ws, se hace padding
+        pad_h = (ws - H % ws) % ws
+        pad_w = (ws - W % ws) % ws
+        if pad_h > 0 or pad_w > 0:
+            x = F.pad(x, (0, pad_w, 0, pad_h))
+            H, W = x.shape[2], x.shape[3]
         
-        # Numerador: φ(Q) · (φ(K)^T V)
-        M = torch.matmul(phi_K.transpose(-2, -1), V)  # (B, heads, d, d)
-        numerator = torch.matmul(phi_Q, M)              # (B, heads, N, d)
+        # Dividir la entrada en ventanas.
+        # x: (B, C, H, W) -> (B, C, num_windows_h, ws, num_windows_w, ws)
+        num_windows_h = H // ws
+        num_windows_w = W // ws
+        x_windows = x.view(B, C, num_windows_h, ws, num_windows_w, ws)
+        # Reordenar a (B, num_windows_h, num_windows_w, C, ws, ws)
+        x_windows = x_windows.permute(0, 2, 4, 1, 3, 5).contiguous()
+        # Fusionar ventanas: (B * num_windows, C, ws, ws)
+        windows = x_windows.view(-1, C, ws, ws)
         
-        # Denominador: φ(Q) · (φ(K)^T 1)
-        ones = torch.ones(phi_K.size()[:-1] + (1,), device=phi_K.device)  # (B, heads, N, 1)
-        M_den = torch.matmul(phi_K.transpose(-2, -1), ones)                # (B, heads, d, 1)
-        denominator = torch.matmul(phi_Q, M_den)                           # (B, heads, N, 1)
+        # Aplicar las proyecciones Q, K y V en cada ventana
+        Q = self.query_conv(windows)  # (B_w, C, ws, ws)
+        K = self.key_conv(windows)
+        V = self.value_conv(windows)
         
-        out = numerator / (denominator + 1e-6)  # (B, heads, N, d)
+        # Obtener dimensiones: B_w = B * num_windows, N = ws*ws
+        B_w, C_w, H_w, W_w = Q.shape
+        N = H_w * W_w
+        # Reestructurar a (B_w, attention_heads, N, d)
+        Q = Q.view(B_w, self.attention_heads, self.d_head, N).permute(0, 1, 3, 2)
+        K = K.view(B_w, self.attention_heads, self.d_head, N).permute(0, 1, 3, 2)
+        V = V.view(B_w, self.attention_heads, self.d_head, N).permute(0, 1, 3, 2)
         
-        # Reorganizar la salida a (B, self.filters, Hq, Wq)
-        out = out.permute(0, 1, 3, 2).contiguous().view(B, self.filters, Hq, Wq)
-        out = self.projection_conv(out)
+        # Atención global dentro de la ventana:
+        # Matriz de atención: (B_w, heads, N, N)
+        attn = torch.matmul(Q, K.transpose(-2, -1)) / (self.d_head ** 0.5)
+        attn = F.softmax(attn, dim=-1)
+        out_window = torch.matmul(attn, V)  # (B_w, heads, N, d)
+        
+        # Reorganizar a (B_w, C, ws, ws)
+        out_window = out_window.permute(0, 1, 3, 2).contiguous().view(B_w, C, H_w, W_w)
+        out_window = self.projection_conv(out_window)  # (B_w, C, ws, ws)
+        
+        # Reconvertir a la forma original: (B, C, H, W)
+        out_windows = out_window.view(B, num_windows_h, num_windows_w, C, ws, ws)
+        out_windows = out_windows.permute(0, 3, 1, 4, 2, 5).contiguous()
+        out = out_windows.view(B, C, num_windows_h * ws, num_windows_w * ws)
+        
+        # Si se hizo padding, quitarlo
+        if pad_h > 0 or pad_w > 0:
+            out = out[:, :, :H - pad_h, :W - pad_w]
         return out
 
 
