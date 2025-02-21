@@ -615,7 +615,7 @@ class BuildPyTorchModel(nn.Module):
                     layers.append(nn.Conv2d(in_channels, desired_filters, kernel_size=1))
                     in_channels = desired_filters
                 # Se agrega la capa de atención local
-                layers.append(LocalSelfAttention(filters=desired_filters,
+                layers.append(SelfAttention(filters=desired_filters,
                                                  window_size=16,  # Ajusta según la resolución (por ejemplo, 16 para 128x128)
                                                  attention_heads=layer['attention_heads'],
                                                  activation=layer['activation'],
