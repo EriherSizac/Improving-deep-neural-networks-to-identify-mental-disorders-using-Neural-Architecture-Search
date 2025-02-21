@@ -607,14 +607,21 @@ class BuildPyTorchModel(nn.Module):
                 layers.append(nn.ReLU() if layer['activation'] == "relu" else nn.LeakyReLU())
                 in_channels = layer['filters']
             elif layer['type'] == 'SelfAttention':
-                layers.append(SelfAttention(filters=layer['filters'],
-                                            attention_heads=layer['attention_heads'],
-                                            activation=layer['activation'],
-                                            verbose=self.verbose))
-                in_channels = layer['filters']  # Actualiza in_channels según lo codificado
-
+                # Antes de la atención local, se verifica que los canales coincidan
+                desired_filters = layer['filters']
+                if in_channels != desired_filters:
+                    if self.verbose:
+                        print(f"Ajustando canales de entrada: {in_channels} -> {desired_filters}")
+                    layers.append(nn.Conv2d(in_channels, desired_filters, kernel_size=1))
+                    in_channels = desired_filters
+                # Se agrega la capa de atención local
+                layers.append(LocalSelfAttention(filters=desired_filters,
+                                                 window_size=16,  # Ajusta según la resolución (por ejemplo, 16 para 128x128)
+                                                 attention_heads=layer['attention_heads'],
+                                                 activation=layer['activation'],
+                                                 verbose=self.verbose))
+                in_channels = desired_filters
             elif layer['type'] == 'BatchNorm':
-                # Se inicia con BatchNorm2d, pero se ajustará en forward si es necesario.
                 layers.append(nn.BatchNorm2d(in_channels))
             elif layer['type'] == 'MaxPooling':
                 layers.append(nn.MaxPool2d(kernel_size=2, stride=layer['strides'], padding=1))
@@ -628,33 +635,31 @@ class BuildPyTorchModel(nn.Module):
                 layers.append(DontCareLayer())
 
         self.feature_extractor = nn.Sequential(*layers)
+
     def forward_features(self, x):
         for module in self.feature_extractor:
             x = module(x)
         return x
+
     def forward(self, x):
         if self.initial_conv is not None:
             x = self.initial_conv(x)
-        # x = checkpoint.checkpoint(self.forward_features, x, use_reentrant=False)
         for i, module in enumerate(self.feature_extractor):
-            # Si el módulo es BatchNorm2d pero la entrada es 2D (después del Flatten)
+            # Ajuste dinámico de BatchNorm (según si la entrada es 2D o 4D)
             if isinstance(module, nn.BatchNorm2d):
-                if x.dim() == 2:  # Es decir, (batch, features)
+                if x.dim() == 2:  # (batch, features)
                     num_features = x.shape[1]
                     print(f"⚠️ Reemplazando BatchNorm2d por BatchNorm1d para entrada con forma {x.shape}")
-                    # Reemplazar la capa por una BatchNorm1d con el número correcto de features
                     self.feature_extractor[i] = nn.BatchNorm1d(num_features).to(x.device)
                     module = self.feature_extractor[i]
                 else:
-                    # En caso de entrada 4D, se verifica que el número de canales coincida
                     num_channels = x.shape[1]
                     if module.num_features != num_channels:
                         print(f"⚠️ Ajustando BatchNorm2d: esperaba {module.num_features} canales, pero recibió {num_channels}")
                         self.feature_extractor[i] = nn.BatchNorm2d(num_channels).to(x.device)
                         module = self.feature_extractor[i]
             x = module(x)
-
-        # Construcción dinámica de capas densas
+        # Construcción dinámica de las capas densas
         if not hasattr(self, "fully_connected"):
             in_features = x.shape[1]
             fc_layers = []
@@ -663,10 +668,8 @@ class BuildPyTorchModel(nn.Module):
                 fc_layers.append(nn.ReLU() if activation == "relu" else nn.LeakyReLU())
                 in_features = units
             self.fully_connected = nn.Sequential(*fc_layers).to(x.device)
-
         x = self.fully_connected(x)
         return x
-
 
 
 
