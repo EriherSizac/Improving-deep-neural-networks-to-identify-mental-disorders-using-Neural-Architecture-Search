@@ -146,83 +146,65 @@ import torch.nn.functional as F
 
 class SelfAttention(nn.Module):
     def __init__(self, filters, window_size=8, attention_heads=4, activation=nn.ReLU(), verbose=False):
-        """
-        Atención local: divide la entrada en ventanas y aplica atención dentro de cada ventana.
-        
-        Parámetros:
-            filters: número de canales de entrada (y salida). Se espera que sea divisible por attention_heads.
-            window_size: tamaño de la ventana (asume ventanas cuadradas).
-            attention_heads: número de cabezas de atención.
-            activation: función de activación (no se usa explícitamente en este ejemplo, pero se puede ampliar).
-            verbose: si es True, imprime mensajes de debug.
-        """
         super(SelfAttention, self).__init__()
         if filters % attention_heads != 0:
             if verbose:
                 print(f"Warning: {filters} no es divisible por {attention_heads}. Ajustando filters.")
             filters = filters - (filters % attention_heads)
             filters = max(filters, attention_heads)
+
         self.filters = filters
         self.attention_heads = attention_heads
         self.window_size = window_size
         self.verbose = verbose
         self.d_head = self.filters // self.attention_heads  # Canales por cabeza
         
-        # Inicializar las convoluciones sin in_channels definido (se ajustará dinámicamente en forward)
+        # Inicializar convoluciones como None para configurarlas en forward()
         self.query_conv = None
         self.key_conv = None
         self.value_conv = None
         self.projection_conv = None
 
     def forward(self, x):
-        """
-        x: tensor de forma (B, C, H, W), donde C == self.filters.
-        """
         B, C, H, W = x.shape
         ws = self.window_size
         
-        # Si H o W no son divisibles por ws, se hace padding
+        # Padding si H o W no son múltiplos de window_size
         pad_h = (ws - H % ws) % ws
         pad_w = (ws - W % ws) % ws
         if pad_h > 0 or pad_w > 0:
             x = F.pad(x, (0, pad_w, 0, pad_h))
             H, W = x.shape[2], x.shape[3]
         
-        # Dividir la entrada en ventanas.
         num_windows_h = H // ws
         num_windows_w = W // ws
         x_windows = x.view(B, C, num_windows_h, ws, num_windows_w, ws)
         x_windows = x_windows.permute(0, 2, 4, 1, 3, 5).contiguous()
         windows = x_windows.view(-1, C, ws, ws)
 
-        # Ajustar dinámicamente los canales de entrada de las convoluciones
-        if self.query_conv is None:
+        # Ajustar convoluciones dinámicamente
+        if self.query_conv is None or self.query_conv.in_channels != C:
             self.query_conv = nn.Conv2d(in_channels=C, out_channels=self.filters, kernel_size=1).to(x.device)
             self.key_conv = nn.Conv2d(in_channels=C, out_channels=self.filters, kernel_size=1).to(x.device)
             self.value_conv = nn.Conv2d(in_channels=C, out_channels=self.filters, kernel_size=1).to(x.device)
-            self.projection_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1).to(x.device)
 
-        # Aplicar las proyecciones Q, K y V en cada ventana
         Q = self.query_conv(windows)
         K = self.key_conv(windows)
         V = self.value_conv(windows)
 
-        # Obtener dimensiones: B_w = B * num_windows, N = ws*ws
         B_w, C_w, H_w, W_w = Q.shape
         N = H_w * W_w
         Q = Q.view(B_w, self.attention_heads, self.d_head, N).permute(0, 1, 3, 2)
         K = K.view(B_w, self.attention_heads, self.d_head, N).permute(0, 1, 3, 2)
         V = V.view(B_w, self.attention_heads, self.d_head, N).permute(0, 1, 3, 2)
-        
-        # Atención global dentro de la ventana:
+
         attn = torch.matmul(Q, K.transpose(-2, -1)) / (self.d_head ** 0.5)
         attn = F.softmax(attn, dim=-1)
         out_window = torch.matmul(attn, V)
 
-        # Reorganizar a (B_w, C, ws, ws)
         out_window = out_window.permute(0, 1, 3, 2).contiguous()
 
-        # Validar la forma antes de `reshape()`
+        # Verificación antes de reshape()
         expected_elements = B_w * C * H_w * W_w
         actual_elements = out_window.numel()
 
@@ -230,20 +212,20 @@ class SelfAttention(nn.Module):
             print(f"⚠️ ERROR: Tamaño incompatible en `reshape()`")
             print(f"Esperado: {expected_elements}, Real: {actual_elements}")
             print(f"Forma de `out_window` antes de `reshape()`: {out_window.shape}")
-            
-            # Ajuste seguro: Redimensionar sin perder datos
             out_window = out_window.reshape(B_w, C, -1, W_w)
         else:
             out_window = out_window.reshape(B_w, C, H_w, W_w)
 
+        # 🔥 **Ajuste de `projection_conv` antes de aplicarla**
+        if self.projection_conv is None or self.projection_conv.in_channels != out_window.shape[1]:
+            self.projection_conv = nn.Conv2d(in_channels=out_window.shape[1], out_channels=self.filters, kernel_size=1).to(out_window.device)
+
         out_window = self.projection_conv(out_window)
 
-        # Reconvertir a la forma original: (B, C, H, W)
         out_windows = out_window.view(B, num_windows_h, num_windows_w, C, ws, ws)
         out_windows = out_windows.permute(0, 3, 1, 4, 2, 5).contiguous()
         out = out_windows.view(B, C, num_windows_h * ws, num_windows_w * ws)
 
-        # Si se hizo padding, quitarlo
         if pad_h > 0 or pad_w > 0:
             out = out[:, :, :H - pad_h, :W - pad_w]
         return out
