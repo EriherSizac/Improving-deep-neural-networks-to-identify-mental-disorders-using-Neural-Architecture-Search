@@ -146,6 +146,16 @@ import torch.nn.functional as F
 
 class SelfAttention(nn.Module):
     def __init__(self, filters, window_size=8, attention_heads=4, activation=nn.ReLU(), verbose=False):
+        """
+        Atención local: divide la entrada en ventanas y aplica atención dentro de cada ventana.
+        
+        Parámetros:
+            filters: número de canales de entrada (y salida). Se espera que sea divisible por attention_heads.
+            window_size: tamaño de la ventana (asume ventanas cuadradas).
+            attention_heads: número de cabezas de atención.
+            activation: función de activación (no se usa explícitamente en este ejemplo, pero se puede ampliar).
+            verbose: si es True, imprime mensajes de debug.
+        """
         super(SelfAttention, self).__init__()
         if filters % attention_heads != 0:
             if verbose:
@@ -212,6 +222,8 @@ class SelfAttention(nn.Module):
             print(f"⚠️ ERROR: Tamaño incompatible en `reshape()`")
             print(f"Esperado: {expected_elements}, Real: {actual_elements}")
             print(f"Forma de `out_window` antes de `reshape()`: {out_window.shape}")
+            
+            # Redimensionar sin perder datos
             out_window = out_window.reshape(B_w, C, -1, W_w)
         else:
             out_window = out_window.reshape(B_w, C, H_w, W_w)
@@ -222,7 +234,20 @@ class SelfAttention(nn.Module):
 
         out_window = self.projection_conv(out_window)
 
-        out_windows = out_window.view(B, num_windows_h, num_windows_w, C, ws, ws)
+        # 🔹 **Nueva validación para evitar errores en `view()`**
+        expected_elements_out = B * num_windows_h * num_windows_w * C * ws * ws
+        actual_elements_out = out_window.numel()
+
+        if expected_elements_out != actual_elements_out:
+            print(f"⚠️ ERROR: Tamaño incompatible en `view()`")
+            print(f"Esperado: {expected_elements_out}, Real: {actual_elements_out}")
+            print(f"Forma de `out_window` antes de `view()`: {out_window.shape}")
+            
+            # Ajuste seguro
+            out_windows = out_window.reshape(B, num_windows_h, num_windows_w, C, -1, ws)
+        else:
+            out_windows = out_window.view(B, num_windows_h, num_windows_w, C, ws, ws)
+
         out_windows = out_windows.permute(0, 3, 1, 4, 2, 5).contiguous()
         out = out_windows.view(B, C, num_windows_h * ws, num_windows_w * ws)
 
