@@ -140,6 +140,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 class SelfAttention(nn.Module):
     def __init__(self, filters, window_size=8, attention_heads=4, activation=nn.ReLU(), verbose=False):
         """
@@ -162,7 +166,7 @@ class SelfAttention(nn.Module):
         self.attention_heads = attention_heads
         self.window_size = window_size
         self.verbose = verbose
-        self.d_head = self.filters // self.attention_heads  # canales por cabeza
+        self.d_head = self.filters // self.attention_heads  # Canales por cabeza
         
         # Inicializar las convoluciones sin in_channels definido (se ajustará dinámicamente en forward)
         self.query_conv = None
@@ -216,7 +220,22 @@ class SelfAttention(nn.Module):
         out_window = torch.matmul(attn, V)
 
         # Reorganizar a (B_w, C, ws, ws)
-        out_window = out_window.permute(0, 1, 3, 2).contiguous().view(B_w, C, H_w, W_w)
+        out_window = out_window.permute(0, 1, 3, 2).contiguous()
+
+        # Validar la forma antes de `view()`
+        expected_elements = B_w * C * H_w * W_w
+        actual_elements = out_window.numel()
+
+        if expected_elements != actual_elements:
+            print(f"⚠️ ERROR: Tamaño incompatible en `view()`")
+            print(f"Esperado: {expected_elements}, Real: {actual_elements}")
+            print(f"Forma de `out_window` antes de `view()`: {out_window.shape}")
+            
+            # Redimensionar sin perder datos
+            out_window = out_window.reshape(B_w, C, H_w, W_w)
+        else:
+            out_window = out_window.view(B_w, C, H_w, W_w)
+
         out_window = self.projection_conv(out_window)
 
         # Reconvertir a la forma original: (B, C, H, W)
