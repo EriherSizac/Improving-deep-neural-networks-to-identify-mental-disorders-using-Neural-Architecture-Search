@@ -222,19 +222,19 @@ class SelfAttention(nn.Module):
         # Reorganizar a (B_w, C, ws, ws)
         out_window = out_window.permute(0, 1, 3, 2).contiguous()
 
-        # Validar la forma antes de `view()`
+        # Validar la forma antes de `reshape()`
         expected_elements = B_w * C * H_w * W_w
         actual_elements = out_window.numel()
 
         if expected_elements != actual_elements:
-            print(f"⚠️ ERROR: Tamaño incompatible en `view()`")
+            print(f"⚠️ ERROR: Tamaño incompatible en `reshape()`")
             print(f"Esperado: {expected_elements}, Real: {actual_elements}")
-            print(f"Forma de `out_window` antes de `view()`: {out_window.shape}")
+            print(f"Forma de `out_window` antes de `reshape()`: {out_window.shape}")
             
-            # Redimensionar sin perder datos
-            out_window = out_window.reshape(B_w, C, H_w, W_w)
+            # Ajuste seguro: Redimensionar sin perder datos
+            out_window = out_window.reshape(B_w, C, -1, W_w)
         else:
-            out_window = out_window.view(B_w, C, H_w, W_w)
+            out_window = out_window.reshape(B_w, C, H_w, W_w)
 
         out_window = self.projection_conv(out_window)
 
