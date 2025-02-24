@@ -136,6 +136,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 class SelfAttention(nn.Module):
     def __init__(self, filters, window_size=8, attention_heads=4, activation=nn.ReLU(), verbose=False):
         """
@@ -160,12 +164,11 @@ class SelfAttention(nn.Module):
         self.verbose = verbose
         self.d_head = self.filters // self.attention_heads  # canales por cabeza
         
-        # Capas para proyectar Q, K y V en cada ventana
-        self.query_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
-        self.key_conv   = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
-        self.value_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
-        # Proyección final
-        self.projection_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1)
+        # Inicializar las convoluciones sin in_channels definido (se ajustará dinámicamente en forward)
+        self.query_conv = None
+        self.key_conv = None
+        self.value_conv = None
+        self.projection_conv = None
 
     def forward(self, x):
         """
@@ -182,43 +185,45 @@ class SelfAttention(nn.Module):
             H, W = x.shape[2], x.shape[3]
         
         # Dividir la entrada en ventanas.
-        # x: (B, C, H, W) -> (B, C, num_windows_h, ws, num_windows_w, ws)
         num_windows_h = H // ws
         num_windows_w = W // ws
         x_windows = x.view(B, C, num_windows_h, ws, num_windows_w, ws)
-        # Reordenar a (B, num_windows_h, num_windows_w, C, ws, ws)
         x_windows = x_windows.permute(0, 2, 4, 1, 3, 5).contiguous()
-        # Fusionar ventanas: (B * num_windows, C, ws, ws)
         windows = x_windows.view(-1, C, ws, ws)
-        
+
+        # Ajustar dinámicamente los canales de entrada de las convoluciones
+        if self.query_conv is None:
+            self.query_conv = nn.Conv2d(in_channels=C, out_channels=self.filters, kernel_size=1).to(x.device)
+            self.key_conv = nn.Conv2d(in_channels=C, out_channels=self.filters, kernel_size=1).to(x.device)
+            self.value_conv = nn.Conv2d(in_channels=C, out_channels=self.filters, kernel_size=1).to(x.device)
+            self.projection_conv = nn.Conv2d(in_channels=self.filters, out_channels=self.filters, kernel_size=1).to(x.device)
+
         # Aplicar las proyecciones Q, K y V en cada ventana
-        Q = self.query_conv(windows)  # (B_w, C, ws, ws)
+        Q = self.query_conv(windows)
         K = self.key_conv(windows)
         V = self.value_conv(windows)
-        
+
         # Obtener dimensiones: B_w = B * num_windows, N = ws*ws
         B_w, C_w, H_w, W_w = Q.shape
         N = H_w * W_w
-        # Reestructurar a (B_w, attention_heads, N, d)
         Q = Q.view(B_w, self.attention_heads, self.d_head, N).permute(0, 1, 3, 2)
         K = K.view(B_w, self.attention_heads, self.d_head, N).permute(0, 1, 3, 2)
         V = V.view(B_w, self.attention_heads, self.d_head, N).permute(0, 1, 3, 2)
         
         # Atención global dentro de la ventana:
-        # Matriz de atención: (B_w, heads, N, N)
         attn = torch.matmul(Q, K.transpose(-2, -1)) / (self.d_head ** 0.5)
         attn = F.softmax(attn, dim=-1)
-        out_window = torch.matmul(attn, V)  # (B_w, heads, N, d)
-        
+        out_window = torch.matmul(attn, V)
+
         # Reorganizar a (B_w, C, ws, ws)
         out_window = out_window.permute(0, 1, 3, 2).contiguous().view(B_w, C, H_w, W_w)
-        out_window = self.projection_conv(out_window)  # (B_w, C, ws, ws)
-        
+        out_window = self.projection_conv(out_window)
+
         # Reconvertir a la forma original: (B, C, H, W)
         out_windows = out_window.view(B, num_windows_h, num_windows_w, C, ws, ws)
         out_windows = out_windows.permute(0, 3, 1, 4, 2, 5).contiguous()
         out = out_windows.view(B, C, num_windows_h * ws, num_windows_w * ws)
-        
+
         # Si se hizo padding, quitarlo
         if pad_h > 0 or pad_w > 0:
             out = out[:, :, :H - pad_h, :W - pad_w]
