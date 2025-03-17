@@ -1,0 +1,186 @@
+{
+    "CNN_LF_splits_5_epochs_50_resize_True": {
+        "Loss": 0.5869073152542115,
+        "Accuracy": 0.6918073773384095,
+        "Precision": 0.6886533675451025,
+        "Recall": 0.629713524317122,
+        "F1-score": 0.65501143897535,
+        "Specificity": 0.7467295226870949
+    },
+    "CNN_LF_splits_5_epochs_50_resize_False": {
+        "Loss": 0.582880175113678,
+        "Accuracy": 0.6961225867271423,
+        "Precision": 0.6964887976952714,
+        "Recall": 0.6374417055296469,
+        "F1-score": 0.6611891096497144,
+        "Specificity": 0.7480259281084266
+    },
+    "CNN_LF_splits_5_epochs_100_resize_True": {
+        "Loss": 0.5437639951705933,
+        "Accuracy": 0.7239524722099304,
+        "Precision": 0.7101989722417701,
+        "Recall": 0.7044636908727515,
+        "F1-score": 0.7049034331345452,
+        "Specificity": 0.741190335886859
+    },
+    "CNN_LF_splits_5_epochs_100_resize_False": {
+        "Loss": 0.5411168813705445,
+        "Accuracy": 0.7256410241127014,
+        "Precision": 0.7079714697838838,
+        "Recall": 0.7152564956695536,
+        "F1-score": 0.7089532614092826,
+        "Specificity": 0.7348261638185033
+    },
+    "CNN_LF_splits_10_epochs_50_resize_True": {
+        "Loss": 0.5710299670696258,
+        "Accuracy": 0.7085365951061249,
+        "Precision": 0.7027154394504531,
+        "Recall": 0.664890073284477,
+        "F1-score": 0.6805046348368411,
+        "Specificity": 0.747142015321155
+    },
+    "CNN_LF_splits_10_epochs_50_resize_False": {
+        "Loss": 0.5885131657123566,
+        "Accuracy": 0.6872107565402985,
+        "Precision": 0.7022525964377759,
+        "Recall": 0.5939373750832778,
+        "F1-score": 0.6376784889087098,
+        "Specificity": 0.7697112551561579
+    },
+    "CNN_LF_splits_10_epochs_100_resize_True": {
+        "Loss": 0.5252545058727265,
+        "Accuracy": 0.7378986775875092,
+        "Precision": 0.7310064041453701,
+        "Recall": 0.7132578281145904,
+        "F1-score": 0.7174226607883776,
+        "Specificity": 0.7596935769004125
+    },
+    "CNN_LF_splits_10_epochs_100_resize_False": {
+        "Loss": 0.5338900864124299,
+        "Accuracy": 0.7306754231452942,
+        "Precision": 0.7369336070798295,
+        "Recall": 0.6695536309127247,
+        "F1-score": 0.6983811736777454,
+        "Specificity": 0.7847377725397761
+    },
+    "reduced_model_splits_5_epochs_50_resize_True": {
+        "Loss": 0.5398195445537567,
+        "Accuracy": 0.7616009950637818,
+        "Precision": 0.748159149936668,
+        "Recall": 0.7420386409060626,
+        "F1-score": 0.7450478618468106,
+        "Specificity": 0.778903948143783
+    },
+    "reduced_model_splits_5_epochs_50_resize_False": {
+        "Loss": 0.5584692001342774,
+        "Accuracy": 0.7537210822105408,
+        "Precision": 0.7381654180844619,
+        "Recall": 0.7368421052631579,
+        "F1-score": 0.7374220629810547,
+        "Specificity": 0.7686505598114319
+    },
+    "reduced_model_splits_5_epochs_100_resize_True": {
+        "Loss": 0.5570353686809539,
+        "Accuracy": 0.7952470183372498,
+        "Precision": 0.7857063301479179,
+        "Recall": 0.7748167888074617,
+        "F1-score": 0.7801793145124336,
+        "Specificity": 0.8133176193282263
+    },
+    "reduced_model_splits_5_epochs_100_resize_False": {
+        "Loss": 0.5771037697792053,
+        "Accuracy": 0.7826766729354858,
+        "Precision": 0.7692312036014662,
+        "Recall": 0.7670886075949367,
+        "F1-score": 0.7680620277099108,
+        "Specificity": 0.7964643488509133
+    },
+    "reduced_model_splits_10_epochs_50_resize_True": {
+        "Loss": 0.5087535381317139,
+        "Accuracy": 0.770669162273407,
+        "Precision": 0.7607910266005041,
+        "Recall": 0.7462358427714857,
+        "F1-score": 0.7533932462160279,
+        "Specificity": 0.7922804949911608
+    },
+    "reduced_model_splits_10_epochs_50_resize_False": {
+        "Loss": 0.5161939650774002,
+        "Accuracy": 0.7715759813785553,
+        "Precision": 0.7620559439578478,
+        "Recall": 0.7471019320453032,
+        "F1-score": 0.754381190095734,
+        "Specificity": 0.793223335297584
+    },
+    "reduced_model_splits_10_epochs_100_resize_True": {
+        "Loss": 0.6045601785182952,
+        "Accuracy": 0.780268919467926,
+        "Precision": 0.7687341523734783,
+        "Recall": 0.7606928714190541,
+        "F1-score": 0.7646607080545749,
+        "Specificity": 0.7975839717147909
+    },
+    "reduced_model_splits_10_epochs_100_resize_False": {
+        "Loss": 0.5917164355516433,
+        "Accuracy": 0.7858661651611328,
+        "Precision": 0.771054592817541,
+        "Recall": 0.7733510992671552,
+        "F1-score": 0.7721443613710643,
+        "Specificity": 0.796935769004125
+    },
+    "Spectro_CNN_splits_5_epochs_50_resize_True": {
+        "Loss": 0.6910862684249878,
+        "Accuracy": 0.5366479158401489,
+        "Precision": 0.5062710663375342,
+        "Recall": 0.28980679546968685,
+        "F1-score": 0.3500107201137925,
+        "Specificity": 0.7549793753682971
+    },
+    "Spectro_CNN_splits_5_epochs_50_resize_False": {
+        "Loss": 0.6862188696861267,
+        "Accuracy": 0.5467792510986328,
+        "Precision": 0.5111560472750282,
+        "Recall": 0.25396402398401063,
+        "F1-score": 0.31434588333325875,
+        "Specificity": 0.8057748968768415
+    },
+    "Spectro_CNN_splits_5_epochs_100_resize_True": {
+        "Loss": 0.6833620429039001,
+        "Accuracy": 0.5518448948860168,
+        "Precision": 0.530340173688481,
+        "Recall": 0.38454363757495,
+        "F1-score": 0.44011606151504507,
+        "Specificity": 0.6998232174425457
+    },
+    "Spectro_CNN_splits_5_epochs_100_resize_False": {
+        "Loss": 0.6848449468612671,
+        "Accuracy": 0.5562226414680481,
+        "Precision": 0.5448655594520121,
+        "Recall": 0.34763491005996,
+        "F1-score": 0.4150904225582597,
+        "Specificity": 0.7407189157336476
+    },
+    "Spectro_CNN_splits_10_epochs_50_resize_True": {
+        "Loss": 0.6878788650035859,
+        "Accuracy": 0.5424953162670135,
+        "Precision": 0.5151290267880901,
+        "Recall": 0.24670219853431044,
+        "F1-score": 0.3117739778241194,
+        "Specificity": 0.8041249263406011
+    },
+    "Spectro_CNN_splits_10_epochs_50_resize_False": {
+        "Loss": 0.6895293295383453,
+        "Accuracy": 0.5345528423786163,
+        "Precision": 0.5065111116678812,
+        "Recall": 0.2034643570952698,
+        "F1-score": 0.26695732698169733,
+        "Specificity": 0.8274012964054215
+    },
+    "Spectro_CNN_splits_10_epochs_100_resize_True": {
+        "Loss": 0.6847634851932526,
+        "Accuracy": 0.5475297093391418,
+        "Precision": 0.5235731680799807,
+        "Recall": 0.28827448367754827,
+        "F1-score": 0.3400457162044736,
+        "Specificity": 0.7768414849734825
+    }
+}

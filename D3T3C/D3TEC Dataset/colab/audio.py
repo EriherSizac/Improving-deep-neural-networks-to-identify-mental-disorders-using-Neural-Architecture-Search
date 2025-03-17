@@ -1,12 +1,4 @@
-import os
-import copy
-import numpy as np
-import pandas as pd
-import torchaudio
-import torch
-from sklearn.model_selection import train_test_split
-from tqdm import tqdm
-
+# Preprocesamiento de datos de audio
 def load_audio_data(directory, window_size, sample_rate):
     audio_dict = {}
     for file_name in os.listdir(directory):
@@ -22,6 +14,7 @@ def load_audio_data(directory, window_size, sample_rate):
     return audio_dict, sample_rate
 
 def preprocess_audio(audio_dict, sample_rate):
+    audio_dict = copy.deepcopy(audio_dict)
     n_mels = 128
     n_fft = int(sample_rate * 0.029)
     hop_length = int(sample_rate * 0.010)
@@ -29,15 +22,13 @@ def preprocess_audio(audio_dict, sample_rate):
 
     for filename, waveform in tqdm(audio_dict.items(), desc='MELSPECTROGRAM'):
         waveform = torch.from_numpy(waveform)
-        spec = torchaudio.transforms.MelSpectrogram(
-            sample_rate=sample_rate, n_fft=n_fft, n_mels=n_mels, hop_length=hop_length, win_length=win_length)(waveform)
+        spec = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate, n_fft=n_fft, n_mels=n_mels, hop_length=hop_length, win_length=win_length)(waveform)
         spec = torchaudio.transforms.AmplitudeToDB()(spec)
         spec = spec.numpy()
         spec = (spec - spec.min()) / (spec.max() - spec.min())
         audio_dict[filename] = spec
     return audio_dict
 
-# Padding de los espectrogramas
 def pad_and_crop_spectrograms(spectrograms, target_shape=(128, 128)):
     padded_spectrograms = []
     for spec in spectrograms:
@@ -53,8 +44,6 @@ def pad_and_crop_spectrograms(spectrograms, target_shape=(128, 128)):
         padded_spectrograms.append(padded_spec)
     return np.array(padded_spectrograms)
 
-
-# Split de audio en train y test
 def train_test_split_audio(audio_dict):
     df = pd.read_csv('Dataset.csv', usecols=['Participant_ID', 'PHQ-9 Score'], dtype={1: str})
     df['labels'] = np.zeros([len(df),], dtype=int)
@@ -77,3 +66,5 @@ def train_test_split_audio(audio_dict):
     X = X[..., np.newaxis]
     print(f"X shape: {X.shape}, Y shape: {Y.shape}")
     return X, Y
+
+
