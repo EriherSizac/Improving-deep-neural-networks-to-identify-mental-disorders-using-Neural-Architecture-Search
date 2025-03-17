@@ -9,6 +9,7 @@ from .utils.latin_hypercube import generate_latin_hypercube_samples
 import datetime
 import glob
 import re
+import matplotlib.pyplot as plt
 
      # Prepare checkpoint data - convert all NumPy arrays to Python native types
 def numpy_to_python(obj):
@@ -263,59 +264,57 @@ def crossover(parent1, parent2, cr_rate=0.5):
 
 def find_latest_checkpoint(checkpoint_dir='./checkpoints'):
     """
-    Encuentra el checkpoint más reciente en el directorio de checkpoints.
+    Encuentra el checkpoint más reciente en el directorio especificado.
     
     Args:
-        checkpoint_dir: Directorio base de checkpoints.
-    
-    Returns:
-        str: Ruta al checkpoint más reciente o None si no hay checkpoints.
-    """
-    # Asegurar que el directorio existe
-    if not os.path.exists(checkpoint_dir):
-        print(f"Directorio de checkpoints no encontrado: {checkpoint_dir}")
-        return None
-    
-    # Buscar directorios de guardado con formato de fecha y hora
-    checkpoint_dir = os.path.abspath(checkpoint_dir)
-    save_dirs = [d for d in os.listdir(checkpoint_dir) if d.startswith('saves_')]
-    
-    if not save_dirs:
-        return None
-    
-    # Ordenar directorios por fecha (más reciente primero)
-    save_dirs.sort(reverse=True)
-    latest_dir = os.path.join(checkpoint_dir, save_dirs[0])
-    
-    # Buscar el checkpoint más reciente en el directorio más reciente
-    try:
-        checkpoint_files = [f for f in os.listdir(latest_dir) if f.startswith('checkpoint_') and f.endswith('.json')]
+        checkpoint_dir: Directorio donde buscar checkpoints
         
-        if not checkpoint_files:
+    Returns:
+        Ruta al checkpoint más reciente, o None si no se encuentra ninguno
+    """
+    try:
+        # Verificar que el directorio exista
+        if not os.path.exists(checkpoint_dir):
+            print(f"El directorio {checkpoint_dir} no existe.")
             return None
         
-        # Extraer números de checkpoint
-        checkpoint_info = []
+        # Buscar directorios de saves
+        save_dirs = glob.glob(os.path.join(checkpoint_dir, "saves_*"))
+        if not save_dirs:
+            print(f"No se encontraron directorios de saves en {checkpoint_dir}.")
+            return None
+        
+        # Ordenar por fecha de modificación (más reciente primero)
+        save_dirs.sort(key=os.path.getmtime, reverse=True)
+        latest_save_dir = save_dirs[0]
+        
+        # Buscar archivos de checkpoint en el directorio más reciente
+        checkpoint_files = glob.glob(os.path.join(latest_save_dir, "checkpoint_*.json"))
+        if not checkpoint_files:
+            print(f"No se encontraron archivos de checkpoint en {latest_save_dir}.")
+            return None
+        
+        # Extraer números de checkpoint y ordenar
+        checkpoint_numbers = []
         for f in checkpoint_files:
-            match = re.search(r'checkpoint_(\d+)_exp(\d+)_gen(\d+)', f)
+            match = re.search(r'checkpoint_(\d+)_', f)
             if match:
-                checkpoint_num = int(match.group(1))
-                exp_num = int(match.group(2))
-                gen_num = int(match.group(3))
-                checkpoint_info.append((checkpoint_num, exp_num, gen_num, f))
+                checkpoint_numbers.append((int(match.group(1)), f))
         
-        # Ordenar por número de checkpoint (descendente)
-        checkpoint_info.sort(key=lambda x: -x[0])
+        if not checkpoint_numbers:
+            print("No se pudieron extraer números de checkpoint.")
+            return None
         
-        # Devolver el checkpoint más reciente
-        if checkpoint_info:
-            _, _, _, latest_checkpoint = checkpoint_info[0]
-            return os.path.join(latest_dir, latest_checkpoint)
-    except Exception as e:
-        print(f"Error al buscar checkpoint: {e}")
-        return None
+        # Ordenar por número de checkpoint (mayor primero)
+        checkpoint_numbers.sort(reverse=True)
+        latest_checkpoint = checkpoint_numbers[0][1]
+        
+        print(f"Checkpoint más reciente encontrado: {latest_checkpoint}")
+        return latest_checkpoint
     
-    return None
+    except Exception as e:
+        print(f"Error al buscar el checkpoint más reciente: {e}")
+        return None
 
 def get_succ_m(trial_fitness, parent_fitness):
     """
@@ -355,13 +354,6 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
     # Asegurar que el directorio de checkpoints exista
     os.makedirs(checkpoint_dir, exist_ok=True)
     
-    # Crear directorio para guardar checkpoints con timestamp
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    saves_dir = os.path.join(checkpoint_dir, f"saves_{timestamp}")
-    
-    # Crear el directorio saves_dir
-    os.makedirs(saves_dir, exist_ok=True)
-    
     # Si no es una nueva ejecución, buscar el último checkpoint
     start_experiment = 0
     start_generation = 0
@@ -369,9 +361,16 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
     fitness = None
     best_model_exp = None
     best_model_overall = None
-    best_fitness_overall = float('-inf')
+    best_fitness_overall = float('-inf')  # Problema de maximización, inicializar con -inf
     fitness_history_exp = []
     f_history_exp = []
+    
+    # Inicializar listas para almacenar historiales de todos los experimentos
+    all_fitness_histories = []
+    all_F_histories = []
+    
+    # Directorio para guardar checkpoints
+    saves_dir = None
     
     # Si se proporciona un checkpoint específico, cargarlo
     if resume_from and os.path.exists(resume_from):
@@ -412,12 +411,72 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
             if os.path.exists(checkpoint_dir_path):
                 saves_dir = checkpoint_dir_path
             
-            print(f"Checkpoint cargado. Reanudando desde experimento {exp_idx+1}, generación {gen}")
+            print(f"Checkpoint cargado. Reanudando desde experimento {exp_idx + 1}, generación {gen}")
             if best_model_overall:
                 print(f"Mejor fitness encontrado hasta ahora: {best_fitness_overall}")
         except Exception as e:
             print(f"Error al cargar checkpoint: {e}")
             print("Iniciando nueva búsqueda")
+            new_run = True
+    elif not new_run:
+        # Buscar el último checkpoint automáticamente
+        latest_checkpoint = find_latest_checkpoint(checkpoint_dir)
+        if latest_checkpoint:
+            print(f"Encontrado checkpoint automáticamente: {latest_checkpoint}")
+            try:
+                with open(latest_checkpoint, 'r') as f:
+                    checkpoint_data = json.load(f)
+                
+                # Extraer información del checkpoint
+                exp_idx = checkpoint_data.get('experiment', 0)
+                gen = checkpoint_data.get('generation', 0)
+                
+                # Establecer el experimento y generación de inicio
+                start_experiment = exp_idx
+                start_generation = gen
+                
+                # Cargar población y fitness
+                population = []
+                for p in checkpoint_data.get('population', []):
+                    population.append({'individual': p.get('individual')})
+                
+                fitness = np.array(checkpoint_data.get('fitness', []))
+                
+                # Cargar el mejor modelo del experimento
+                best_model_exp = checkpoint_data.get('best_model_exp', {})
+                
+                # Cargar historiales de fitness y F
+                fitness_history_exp = checkpoint_data.get('fitness_history_exp', [])
+                f_history_exp = checkpoint_data.get('F_history', [])
+                
+                # Cargar el mejor modelo global si existe
+                if 'best_model' in checkpoint_data:
+                    best_model_overall = checkpoint_data.get('best_model')
+                    best_fitness_overall = best_model_overall.get('fitness', float('-inf'))
+                
+                # Obtener el directorio de guardado
+                checkpoint_dir_path = os.path.dirname(latest_checkpoint)
+                if os.path.exists(checkpoint_dir_path):
+                    saves_dir = checkpoint_dir_path
+                
+                print(f"Checkpoint cargado. Reanudando desde experimento {exp_idx + 1}, generación {gen}")
+                if best_model_overall:
+                    print(f"Mejor fitness encontrado hasta ahora: {best_fitness_overall}")
+            except Exception as e:
+                print(f"Error al cargar checkpoint: {e}")
+                print("Iniciando nueva búsqueda")
+                new_run = True
+        else:
+            print("No se encontraron checkpoints anteriores. Iniciando nueva búsqueda...")
+            new_run = True
+    
+    # Si es una nueva búsqueda o no se encontró un checkpoint válido, crear un nuevo directorio
+    if new_run or saves_dir is None:
+        # Crear directorio para guardar checkpoints con timestamp
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        saves_dir = os.path.join(checkpoint_dir, f"saves_{timestamp}")
+        os.makedirs(saves_dir, exist_ok=True)
+        print(f"Creado nuevo directorio para checkpoints: {saves_dir}")
     
     # Iniciar búsqueda
     for exp_idx in range(start_experiment, n_experiments):
@@ -558,8 +617,6 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
                 checkpoint_numbers = [int(re.search(r'checkpoint_(\d+)_', f).group(1)) for f in checkpoint_files if re.search(r'checkpoint_(\d+)_', f)]
                 checkpoint_number = 1 if not checkpoint_numbers else max(checkpoint_numbers) + 1
                 
-           
-                
                 checkpoint_data = {
                     'checkpoint_number': checkpoint_number,
                     'experiment': exp_idx,
@@ -618,6 +675,13 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
         if top_3_models[0]['fitness'] > best_fitness_overall:
             best_fitness_overall = top_3_models[0]['fitness']
             best_model_overall = top_3_models[0].copy()
+        
+        # Generar y guardar gráficas de métricas
+        plot_and_save_metrics(fitness_history_exp, f_history_exp, saves_dir, exp_idx)
+        
+        # Almacenar historiales para la gráfica combinada
+        all_fitness_histories.append(fitness_history_exp)
+        all_F_histories.append(f_history_exp)
         
         # Store results from this experiment
         top_models_per_experiment = []
@@ -714,4 +778,204 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
     
     print(f"\nBúsqueda completada. Checkpoint final guardado en {final_checkpoint_path}")
     
+    # Generar gráfica combinada de todos los experimentos
+    plot_combined_metrics(all_fitness_histories, all_F_histories, saves_dir, n_experiments)
+    
     return results
+
+def plot_and_save_metrics(fitness_history, f_history, save_path, exp_idx):
+    """
+    Genera y guarda gráficas de fitness y valor F para un experimento.
+    
+    Args:
+        fitness_history: Lista de fitness por generación
+        f_history: Lista de valores F por generación
+        save_path: Ruta donde guardar las gráficas
+        exp_idx: Índice del experimento
+    """
+    # Crear figura con dos subplots
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12))
+    
+    # Graficar fitness
+    generations = range(1, len(fitness_history) + 1)
+    ax1.plot(generations, fitness_history, 'b-', linewidth=2, marker='o', markersize=4)
+    ax1.set_title(f'Fitness por Generación - Experimento {exp_idx+1}')
+    ax1.set_xlabel('Generación')
+    ax1.set_ylabel('Fitness (mayor es mejor)')
+    ax1.grid(True, linestyle='--', alpha=0.7)
+    
+    # Añadir línea de tendencia
+    if len(fitness_history) > 1:
+        z = np.polyfit(generations, fitness_history, 1)
+        p = np.poly1d(z)
+        ax1.plot(generations, p(generations), "r--", alpha=0.5, label=f"Tendencia: {z[0]:.4f}x + {z[1]:.4f}")
+        ax1.legend()
+    
+    # Graficar valor F
+    if f_history:
+        ax2.plot(generations, f_history, 'r-', linewidth=2, marker='o', markersize=4)
+        ax2.set_title(f'Valor F por Generación - Experimento {exp_idx+1}')
+        ax2.set_xlabel('Generación')
+        ax2.set_ylabel('Valor F (factor de mutación)')
+        ax2.grid(True, linestyle='--', alpha=0.7)
+        
+        # Añadir línea de tendencia
+        if len(f_history) > 1:
+            z = np.polyfit(generations, f_history, 1)
+            p = np.poly1d(z)
+            ax2.plot(generations, p(generations), "b--", alpha=0.5, label=f"Tendencia: {z[0]:.4f}x + {z[1]:.4f}")
+            ax2.legend()
+    
+    # Añadir información adicional
+    plt.figtext(0.5, 0.01, f"Mejor fitness: {max(fitness_history):.4f}", ha="center", fontsize=12, bbox={"facecolor":"orange", "alpha":0.5, "pad":5})
+    
+    # Ajustar layout
+    plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+    
+    # Guardar figura
+    plt.savefig(os.path.join(save_path, f'metrics_exp{exp_idx+1}.png'), dpi=300)
+    plt.close(fig)
+
+def plot_combined_metrics(all_fitness_histories, all_f_histories, save_path, n_experiments):
+    """
+    Genera y guarda gráficas combinadas de todos los experimentos.
+    
+    Args:
+        all_fitness_histories: Lista de historiales de fitness por experimento
+        all_f_histories: Lista de historiales de valor F por experimento
+        save_path: Ruta donde guardar las gráficas
+        n_experiments: Número total de experimentos
+    """
+    # Verificar que hay datos de fitness para graficar
+    valid_fitness_histories = [h for h in all_fitness_histories if h]
+    if not valid_fitness_histories:
+        print("No hay datos de fitness para generar gráficas combinadas.")
+        return
+    
+    # Crear figura para fitness
+    plt.figure(figsize=(12, 8))
+    
+    # Determinar el número máximo de generaciones
+    max_generations = max(len(fitness) for fitness in valid_fitness_histories)
+    generations = np.arange(1, max_generations + 1)
+    
+    # Inicializar matriz para almacenar valores de fitness
+    fitness_matrix = np.full((n_experiments, max_generations), np.nan)
+    
+    # Llenar la matriz con los valores de fitness
+    for i, fitness_history in enumerate(all_fitness_histories):
+        if fitness_history:
+            fitness_length = len(fitness_history)
+            fitness_matrix[i, :fitness_length] = fitness_history
+    
+    # Graficar todas las ejecuciones en gris claro
+    for i in range(n_experiments):
+        if not np.all(np.isnan(fitness_matrix[i])):
+            plt.plot(
+                generations,
+                fitness_matrix[i],
+                linestyle='-',
+                color='red',
+                alpha=0.5
+            )
+    
+    # Calcular la media y desviación estándar
+    mean_fitness = np.nanmean(fitness_matrix, axis=0)
+    std_fitness = np.nanstd(fitness_matrix, axis=0)
+    
+    # Graficar la media del fitness
+    plt.plot(
+        generations,
+        mean_fitness,
+        linestyle='-',
+        color='blue',
+        linewidth=2,
+        label='Fitness Medio'
+    )
+    
+    # Rellenar el área entre (media - std) y (media + std)
+    plt.fill_between(
+        generations,
+        mean_fitness - std_fitness,
+        mean_fitness + std_fitness,
+        color='blue',
+        alpha=0.2,
+        label='Desviación Estándar'
+    )
+    
+    plt.title('Convergencia de Fitness por Generación en Todos los Experimentos')
+    plt.xlabel('Generaciones')
+    plt.ylabel('Fitness (mayor es mejor)')
+    plt.legend()
+    plt.grid(True)
+    
+    # Guardar gráfica de fitness
+    plt.savefig(os.path.join(save_path, 'combined_fitness.png'), dpi=300)
+    plt.close()
+    
+    # Verificar que hay datos de valor F para graficar
+    valid_f_histories = [h for h in all_f_histories if h]
+    if not valid_f_histories:
+        print("No hay datos de valor F para generar gráficas combinadas.")
+        return
+    
+    # Crear figura para valor F
+    plt.figure(figsize=(12, 8))
+    
+    # Determinar el número máximo de generaciones para F
+    max_generations_f = max(len(f_history) for f_history in valid_f_histories)
+    generations_f = np.arange(1, max_generations_f + 1)
+    
+    # Inicializar matriz para almacenar valores de F
+    f_matrix = np.full((n_experiments, max_generations_f), np.nan)
+    
+    # Llenar la matriz con los valores de F
+    for i, f_history in enumerate(all_f_histories):
+        if f_history:
+            f_length = len(f_history)
+            f_matrix[i, :f_length] = f_history
+    
+    # Graficar todas las ejecuciones en gris claro
+    for i in range(n_experiments):
+        if not np.all(np.isnan(f_matrix[i])):
+            plt.plot(
+                generations_f,
+                f_matrix[i],
+                linestyle='-',
+                color='green',
+                alpha=0.5
+            )
+    
+    # Calcular la media y desviación estándar
+    mean_f = np.nanmean(f_matrix, axis=0)
+    std_f = np.nanstd(f_matrix, axis=0)
+    
+    # Graficar la media del valor F
+    plt.plot(
+        generations_f,
+        mean_f,
+        linestyle='-',
+        color='purple',
+        linewidth=2,
+        label='Valor F Medio'
+    )
+    
+    # Rellenar el área entre (media - std) y (media + std)
+    plt.fill_between(
+        generations_f,
+        mean_f - std_f,
+        mean_f + std_f,
+        color='purple',
+        alpha=0.2,
+        label='Desviación Estándar'
+    )
+    
+    plt.title('Evolución del Factor F por Generación en Todos los Experimentos')
+    plt.xlabel('Generaciones')
+    plt.ylabel('Valor F (factor de mutación)')
+    plt.legend()
+    plt.grid(True)
+    
+    # Guardar gráfica de valor F
+    plt.savefig(os.path.join(save_path, 'combined_f_values.png'), dpi=300)
+    plt.close()
