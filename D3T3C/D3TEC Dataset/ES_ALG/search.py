@@ -797,8 +797,8 @@ def plot_and_save_metrics(fitness_history, f_history, save_path, exp_idx):
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12))
     
     # Graficar fitness
-    generations = range(1, len(fitness_history) + 1)
-    ax1.plot(generations, fitness_history, 'b-', linewidth=2, marker='o', markersize=4)
+    generations_fitness = range(1, len(fitness_history) + 1)
+    ax1.plot(generations_fitness, fitness_history, 'b-', linewidth=2, marker='o', markersize=4)
     ax1.set_title(f'Fitness por Generación - Experimento {exp_idx+1}')
     ax1.set_xlabel('Generación')
     ax1.set_ylabel('Fitness (mayor es mejor)')
@@ -806,14 +806,15 @@ def plot_and_save_metrics(fitness_history, f_history, save_path, exp_idx):
     
     # Añadir línea de tendencia
     if len(fitness_history) > 1:
-        z = np.polyfit(generations, fitness_history, 1)
+        z = np.polyfit(generations_fitness, fitness_history, 1)
         p = np.poly1d(z)
-        ax1.plot(generations, p(generations), "r--", alpha=0.5, label=f"Tendencia: {z[0]:.4f}x + {z[1]:.4f}")
+        ax1.plot(generations_fitness, p(generations_fitness), "r--", alpha=0.5, label=f"Tendencia: {z[0]:.4f}x + {z[1]:.4f}")
         ax1.legend()
     
     # Graficar valor F
     if f_history:
-        ax2.plot(generations, f_history, 'r-', linewidth=2, marker='o', markersize=4)
+        generations_f = range(1, len(f_history) + 1)
+        ax2.plot(generations_f, f_history, 'r-', linewidth=2, marker='o', markersize=4)
         ax2.set_title(f'Valor F por Generación - Experimento {exp_idx+1}')
         ax2.set_xlabel('Generación')
         ax2.set_ylabel('Valor F (factor de mutación)')
@@ -821,9 +822,9 @@ def plot_and_save_metrics(fitness_history, f_history, save_path, exp_idx):
         
         # Añadir línea de tendencia
         if len(f_history) > 1:
-            z = np.polyfit(generations, f_history, 1)
+            z = np.polyfit(generations_f, f_history, 1)
             p = np.poly1d(z)
-            ax2.plot(generations, p(generations), "b--", alpha=0.5, label=f"Tendencia: {z[0]:.4f}x + {z[1]:.4f}")
+            ax2.plot(generations_f, p(generations_f), "b--", alpha=0.5, label=f"Tendencia: {z[0]:.4f}x + {z[1]:.4f}")
             ax2.legend()
     
     # Añadir información adicional
