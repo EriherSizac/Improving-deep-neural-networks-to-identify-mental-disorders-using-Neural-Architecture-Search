@@ -6,6 +6,24 @@ import json
 from tqdm import tqdm
 from .utils.encoding import decode_model_architecture, convert_individual, fixArch, encode_model_architecture, layer_type_options
 from .utils.latin_hypercube import generate_latin_hypercube_samples
+import datetime
+import glob
+import re
+
+     # Prepare checkpoint data - convert all NumPy arrays to Python native types
+def numpy_to_python(obj):
+    if isinstance(obj, (np.integer, np.int32, np.int64)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, np.float32, np.float64)):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return [numpy_to_python(x) for x in obj]
+    elif isinstance(obj, dict):
+        return {k: numpy_to_python(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [numpy_to_python(x) for x in obj]
+    else:
+        return obj  
 
 def pop_gen(num_models, max_alleles=48):
     """
@@ -243,103 +261,266 @@ def crossover(parent1, parent2, cr_rate=0.5):
     child = np.where(mask, parent1, parent2)
     return child
 
-def unified_search(surrogate_model, population_size=10, generations=100, n_experiments=1, 
-                  F=0.5, cr_rate=0.5, auto_adaptation=True, checkpoint_dir='./checkpoints'):
+def find_latest_checkpoint(checkpoint_dir='./checkpoints'):
     """
-    Ejecuta la estrategia evolutiva con múltiples experimentos.
+    Encuentra el checkpoint más reciente en el directorio de checkpoints.
     
     Args:
-        surrogate_model: Modelo sustituto para evaluar las arquitecturas.
-        population_size: Tamaño de la población.
-        generations: Número de generaciones.
-        n_experiments: Número de experimentos a ejecutar.
-        F: Factor de mutación.
-        cr_rate: Tasa de cruce.
-        auto_adaptation: Si se debe adaptar automáticamente el factor F.
-        checkpoint_dir: Directorio para guardar los checkpoints.
+        checkpoint_dir: Directorio base de checkpoints.
     
     Returns:
-        dict: Resultados de la búsqueda, incluyendo el mejor modelo general y los mejores modelos por experimento.
+        str: Ruta al checkpoint más reciente o None si no hay checkpoints.
     """
-    # Crear directorio de checkpoints si no existe
+    # Asegurar que el directorio existe
+    if not os.path.exists(checkpoint_dir):
+        print(f"Directorio de checkpoints no encontrado: {checkpoint_dir}")
+        return None
+    
+    # Buscar directorios de guardado con formato de fecha y hora
     checkpoint_dir = os.path.abspath(checkpoint_dir)
+    save_dirs = [d for d in os.listdir(checkpoint_dir) if d.startswith('saves_')]
+    
+    if not save_dirs:
+        return None
+    
+    # Ordenar directorios por fecha (más reciente primero)
+    save_dirs.sort(reverse=True)
+    latest_dir = os.path.join(checkpoint_dir, save_dirs[0])
+    
+    # Buscar el checkpoint más reciente en el directorio más reciente
+    try:
+        checkpoint_files = [f for f in os.listdir(latest_dir) if f.startswith('checkpoint_') and f.endswith('.json')]
+        
+        if not checkpoint_files:
+            return None
+        
+        # Extraer números de checkpoint
+        checkpoint_info = []
+        for f in checkpoint_files:
+            match = re.search(r'checkpoint_(\d+)_exp(\d+)_gen(\d+)', f)
+            if match:
+                checkpoint_num = int(match.group(1))
+                exp_num = int(match.group(2))
+                gen_num = int(match.group(3))
+                checkpoint_info.append((checkpoint_num, exp_num, gen_num, f))
+        
+        # Ordenar por número de checkpoint (descendente)
+        checkpoint_info.sort(key=lambda x: -x[0])
+        
+        # Devolver el checkpoint más reciente
+        if checkpoint_info:
+            _, _, _, latest_checkpoint = checkpoint_info[0]
+            return os.path.join(latest_dir, latest_checkpoint)
+    except Exception as e:
+        print(f"Error al buscar checkpoint: {e}")
+        return None
+    
+    return None
+
+def get_succ_m(trial_fitness, parent_fitness):
+    """
+    Cuenta cuántas mutaciones fueron exitosas comparadas con el fitness del padre.
+    
+    Args:
+        trial_fitness: Lista de fitness de los individuos mutados.
+        parent_fitness: Lista de fitness de los padres.
+        
+    Returns:
+        int: Número de mutaciones exitosas.
+    """
+    succ_m_count = sum(1 for i in range(len(trial_fitness)) if trial_fitness[i] > parent_fitness[i])
+    return succ_m_count
+
+def unified_search(surrogate_model, population_size=10, generations=100, n_experiments=1, 
+                  F=0.5, cr_rate=0.5, auto_adaptation=True, checkpoint_dir='./checkpoints',
+                  resume_from=None, new_run=False):
+    """
+    Función unificada para búsqueda de arquitecturas neurales usando Evolución Diferencial.
+    
+    Args:
+        surrogate_model: Modelo surrogate para evaluar arquitecturas
+        population_size: Tamaño de la población
+        generations: Número de generaciones
+        n_experiments: Número de experimentos a realizar
+        F: Factor de mutación
+        cr_rate: Tasa de cruce
+        auto_adaptation: Si se debe adaptar automáticamente el factor F
+        checkpoint_dir: Directorio para guardar checkpoints
+        resume_from: Ruta a un checkpoint para reanudar la búsqueda
+        new_run: Si se debe iniciar una nueva búsqueda, ignorando checkpoints existentes
+        
+    Returns:
+        Diccionario con resultados de la búsqueda
+    """
+    # Asegurar que el directorio de checkpoints exista
     os.makedirs(checkpoint_dir, exist_ok=True)
     
-    print(f"Guardando checkpoints en: {checkpoint_dir}")
+    # Crear directorio para guardar checkpoints con timestamp
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    saves_dir = os.path.join(checkpoint_dir, f"saves_{timestamp}")
     
-    # Variables para almacenar resultados
-    best_fitness_overall = float('-inf')
+    # Crear el directorio saves_dir
+    os.makedirs(saves_dir, exist_ok=True)
+    
+    # Si no es una nueva ejecución, buscar el último checkpoint
+    start_experiment = 0
+    start_generation = 0
+    population = None
+    fitness = None
+    best_model_exp = None
     best_model_overall = None
-    top_models_per_experiment = {}
-    all_best_models = []
-    all_fitness_histories = []
-    all_F_histories = []
+    best_fitness_overall = float('-inf')
+    fitness_history_exp = []
+    f_history_exp = []
     
-    # Ejecutar n experimentos
-    for exp_idx in range(n_experiments):
-        print(f"\nIniciando experimento {exp_idx+1}/{n_experiments}")
+    # Si se proporciona un checkpoint específico, cargarlo
+    if resume_from and os.path.exists(resume_from):
+        print(f"Cargando checkpoint desde {resume_from}...")
+        try:
+            with open(resume_from, 'r') as f:
+                checkpoint_data = json.load(f)
+            
+            # Extraer información del checkpoint
+            exp_idx = checkpoint_data.get('experiment', 0)
+            gen = checkpoint_data.get('generation', 0)
+            
+            # Establecer el experimento y generación de inicio
+            start_experiment = exp_idx
+            start_generation = gen
+            
+            # Cargar población y fitness
+            population = []
+            for p in checkpoint_data.get('population', []):
+                population.append({'individual': p.get('individual')})
+            
+            fitness = np.array(checkpoint_data.get('fitness', []))
+            
+            # Cargar el mejor modelo del experimento
+            best_model_exp = checkpoint_data.get('best_model_exp', {})
+            
+            # Cargar historiales de fitness y F
+            fitness_history_exp = checkpoint_data.get('fitness_history_exp', [])
+            f_history_exp = checkpoint_data.get('F_history', [])
+            
+            # Cargar el mejor modelo global si existe
+            if 'best_model' in checkpoint_data:
+                best_model_overall = checkpoint_data.get('best_model')
+                best_fitness_overall = best_model_overall.get('fitness', float('-inf'))
+            
+            # Obtener el directorio de guardado
+            checkpoint_dir_path = os.path.dirname(resume_from)
+            if os.path.exists(checkpoint_dir_path):
+                saves_dir = checkpoint_dir_path
+            
+            print(f"Checkpoint cargado. Reanudando desde experimento {exp_idx+1}, generación {gen}")
+            if best_model_overall:
+                print(f"Mejor fitness encontrado hasta ahora: {best_fitness_overall}")
+        except Exception as e:
+            print(f"Error al cargar checkpoint: {e}")
+            print("Iniciando nueva búsqueda")
+    
+    # Iniciar búsqueda
+    for exp_idx in range(start_experiment, n_experiments):
+        print(f"\nIniciando experimento {exp_idx + 1}/{n_experiments}")
         
-        # Initialize population using pop_gen function
-        print(f"Inicializando población de tamaño {population_size}...")
-        population = pop_gen(population_size)
-        
-        # Evaluate initial population
-        fitness = np.array([evaluate_architecture(ind['individual'], surrogate_model) for ind in tqdm(population, desc="Evaluando población inicial")])
-        
-        # Initialize best model for this experiment
-        best_idx = np.argmax(fitness)
-        best_model_exp = {
-            'individual': population[best_idx]['individual'],
-            'fitness': fitness[best_idx]
-        }
-        
-        # Initialize fitness history and F history
-        fitness_history_exp = [np.mean(fitness)]
-        f_history_exp = [F]
+        # Verificar si estamos reanudando un experimento en progreso
+        if exp_idx == start_experiment and start_generation > 0 and 'population' in locals() and len(population) > 0:
+            print(f"Reanudando experimento {exp_idx + 1} desde la generación {start_generation + 1}")
+            # Ya tenemos la población y fitness cargados del checkpoint
+        else:
+            # Inicializar nueva población y evaluarla
+            print("Generando población inicial...")
+            population = pop_gen(population_size)
+            
+            # Evaluar población inicial
+            fitness = np.array([evaluate_architecture(ind['individual'], surrogate_model) for ind in tqdm(population, desc="Evaluando población inicial")])
+            
+            # Inicializar historiales
+            fitness_history_exp = []
+            f_history_exp = []
+            
+            # Inicializar mejor modelo del experimento
+            best_idx = np.argmax(fitness)
+            best_model_exp = {
+                'individual': population[best_idx]['individual'],
+                'fitness': fitness[best_idx]
+            }
+            
+            # Inicializar mejor modelo global si es necesario
+            if best_model_overall is None:
+                best_model_overall = best_model_exp.copy()
+                best_fitness_overall = best_model_exp['fitness']
         
         # Evolution loop
-        for gen in range(generations):
-            print(f"\nGeneración {gen+1}/{generations} (Experimento {exp_idx+1}/{n_experiments})")
-            
-            # Auto-adaptation of F parameter
-            if auto_adaptation and gen > 0:
-                if fitness_history_exp[-1] <= fitness_history_exp[-2]:
-                    F = np.random.uniform(0.1, 1.0)
-                    print(f"Adaptando F a {F:.4f}")
+        for gen in range(start_generation, generations):
+            print(f"\nGeneración {gen + 1}/{generations} (Experimento {exp_idx + 1}/{n_experiments})")
             
             # Initialize trial population
             trial_population = []
             
             # Mutation and crossover
-            for i in range(population_size):
+            for i in range(len(population)):
                 # Select random indices for mutation
                 while True:
-                    indices = np.random.choice(population_size, 3, replace=False)
+                    indices = np.random.choice(len(population), 3, replace=False)
                     if i not in indices:
                         break
-                    if population_size <= 3:
-                        indices = np.random.choice(population_size, 3, replace=False)
+                    if len(population) <= 3:
+                        indices = np.random.choice(len(population), 3, replace=False)
                 
                 # Get individuals for mutation
                 a, b, c = population[indices[0]]['individual'], population[indices[1]]['individual'], population[indices[2]]['individual']
                 
-                # Create mutant vector
-                mutant = np.array(a) + F * (np.array(b) - np.array(c))
+                # Create mutant vector using DE/rand/1 strategy
+                a_real = convert_individual(a, to_real=True)
+                b_real = convert_individual(b, to_real=True)
+                c_real = convert_individual(c, to_real=True)
                 
-                # Perform crossover
-                trial = crossover(mutant, population[i]['individual'], cr_rate)
+                mutant = []
+                for j in range(len(a_real)):
+                    mutant.append(a_real[j] + F * (b_real[j] - c_real[j]))
+                
+                # Convert back to integer representation for fixArch
+                mutant_int = convert_individual(mutant, to_real=False)
                 
                 # Fix architecture to ensure valid encoding
-                trial = fixArch(trial.tolist(), verbose=False)
+                mutant_fixed = fixArch(mutant_int, verbose=False)
+                
+                # Perform crossover
+                trial = crossover(convert_individual(mutant_fixed, to_real=True), 
+                                 convert_individual(population[i]['individual'], to_real=True), 
+                                 cr_rate)
+                
+                # Convert back to integer representation for evaluation
+                trial_int = convert_individual(trial, to_real=False)
+                
+                # Fix architecture again to ensure valid encoding after crossover
+                trial_fixed = fixArch(trial_int, verbose=False)
                 
                 # Add to trial population
-                trial_population.append(trial)
+                trial_population.append(trial_fixed)
             
             # Evaluate trial population
             trial_fitness = np.array([evaluate_architecture(ind, surrogate_model) for ind in tqdm(trial_population, desc="Evaluando población de prueba")])
             
+            # Auto-adaptation of F parameter based on successful mutations
+            if auto_adaptation and gen > 0:
+                # Contar mutaciones exitosas
+                succ_m = get_succ_m(trial_fitness, fitness)
+                succ_rate = succ_m / len(population)
+                
+                # Ajustar F según la tasa de éxito
+                if succ_rate < 0.2:  # Pocas mutaciones exitosas, reducir F
+                    F = max(0.1, F * 0.9)
+                    print(f"Pocas mutaciones exitosas ({succ_rate:.2f}). Reduciendo F a {F:.4f}")
+                elif succ_rate > 0.8:  # Muchas mutaciones exitosas, aumentar F
+                    F = min(1.0, F * 1.1)
+                    print(f"Muchas mutaciones exitosas ({succ_rate:.2f}). Aumentando F a {F:.4f}")
+                else:
+                    print(f"Tasa de mutaciones exitosas: {succ_rate:.2f}. Manteniendo F = {F:.4f}")
+            
             # Selection
-            for i in range(population_size):
+            for i in range(len(population)):
                 if trial_fitness[i] > fitness[i]:
                     population[i]['individual'] = trial_population[i]
                     fitness[i] = trial_fitness[i]
@@ -357,103 +538,180 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
             
             # Print current best fitness
             print(f"Mejor fitness en generación {gen+1}: {best_model_exp['fitness']}")
+            
+            # Save checkpoint every 10 generations or at the end
+            if (gen + 1) % 10 == 0 or gen == generations - 1:
+                print(f"Guardando checkpoint en generación {gen+1}...")
+                
+                # Si es el primer experimento y generación, best_model_overall podría ser None
+                if best_model_overall is None:
+                    best_model_overall = {
+                        'individual': best_model_exp['individual'],
+                        'fitness': best_model_exp['fitness']
+                    }
+                
+                # Asegurar que el directorio existe
+                os.makedirs(saves_dir, exist_ok=True)
+                
+                # Obtener el número del próximo checkpoint
+                checkpoint_files = [f for f in os.listdir(saves_dir) if f.startswith('checkpoint_') and f.endswith('.json')]
+                checkpoint_numbers = [int(re.search(r'checkpoint_(\d+)_', f).group(1)) for f in checkpoint_files if re.search(r'checkpoint_(\d+)_', f)]
+                checkpoint_number = 1 if not checkpoint_numbers else max(checkpoint_numbers) + 1
+                
+           
+                
+                checkpoint_data = {
+                    'checkpoint_number': checkpoint_number,
+                    'experiment': exp_idx,
+                    'generation': gen + 1,
+                    'population': [
+                        {
+                            'individual': p['individual'],
+                            # Usar el valor de fitness del array de fitness en lugar de buscarlo en el diccionario
+                            'fitness': float(fitness[i]) if isinstance(fitness[i], (np.ndarray, np.number)) else fitness[i]
+                        } for i, p in enumerate(population)
+                    ],
+                    'fitness': [float(f) for f in fitness] if isinstance(fitness, np.ndarray) else fitness,
+                    'best_model_exp': {
+                        'individual': best_model_exp['individual'],
+                        'fitness': float(best_model_exp['fitness']) if isinstance(best_model_exp['fitness'], (np.ndarray, np.number)) else best_model_exp['fitness']
+                    },
+                    'best_model': {
+                        'individual': best_model_overall['individual'],
+                        'fitness': float(best_model_overall['fitness']) if isinstance(best_model_overall['fitness'], (np.ndarray, np.number)) else best_model_overall['fitness']
+                    },
+                    'fitness_history_exp': [float(x) for x in fitness_history_exp],
+                    'unique_models': [
+                        {
+                            'individual': ind['individual'],
+                            # Usar el valor de fitness del array de fitness en lugar de buscarlo en el diccionario
+                            'fitness': float(fitness[i]) if isinstance(fitness[i], (np.ndarray, np.number)) else fitness[i]
+                        } for i, ind in enumerate(population[:10])  # Guardar solo los 10 mejores modelos
+                    ],
+                    'F': float(F) if isinstance(F, (np.ndarray, np.number)) else F,
+                    'cr_rate': float(cr_rate) if isinstance(cr_rate, (np.ndarray, np.number)) else cr_rate
+                }
+                
+                # Convertir todo a tipos Python nativos
+                checkpoint_data = numpy_to_python(checkpoint_data)
+                
+                # Save checkpoint
+                checkpoint_path = os.path.join(saves_dir, f"checkpoint_{checkpoint_number}_exp{exp_idx+1}_gen{gen+1}.json")
+                with open(checkpoint_path, 'w') as f:
+                    json.dump(checkpoint_data, f, indent=2)
+                
+                print(f"Checkpoint guardado en {checkpoint_path}")
         
         # Get top 3 models from current experiment
-        # Primero ordenamos todos los individuos por fitness
         sorted_indices = np.argsort(fitness)[::-1]  # Ordenados de mayor a menor fitness
-        
-        # Tomamos los 3 mejores modelos diferentes
         top_3_models = []
-        used_architectures = set()
         
-        for i in range(len(sorted_indices)):
+        # Tomamos los 3 mejores modelos
+        for i in range(min(3, len(sorted_indices))):
             idx = int(sorted_indices[i])
-            current_arch = tuple(convert_individual(population[idx]['individual'], to_real=False))
-            
-            # Solo añadimos si la arquitectura no está ya en el conjunto
-            if current_arch not in used_architectures:
-                top_3_models.append({
-                    'individual': population[idx]['individual'],
-                    'fitness': float(fitness[idx])
-                })
-                used_architectures.add(current_arch)
-                
-                # Si ya tenemos 3 modelos diferentes, terminamos
-                if len(top_3_models) >= 3:
-                    break
+            top_3_models.append({
+                'individual': population[idx]['individual'],
+                'fitness': float(fitness[idx]) if isinstance(fitness[idx], (np.ndarray, np.number)) else fitness[idx]
+            })
         
-        # Si no tenemos suficientes modelos diferentes, tomamos los siguientes mejores
-        if len(top_3_models) < 3:
-            print(f"Advertencia: Solo se encontraron {len(top_3_models)} arquitecturas diferentes en el experimento {exp_idx+1}")
-            for i in range(len(sorted_indices)):
-                idx = int(sorted_indices[i])
-                # Verificamos si este modelo ya está en nuestra lista
-                already_added = False
-                for model in top_3_models:
-                    if np.array_equal(population[idx]['individual'], model['individual']):
-                        already_added = True
-                        break
-                
-                if not already_added:
-                    top_3_models.append({
-                        'individual': population[idx]['individual'],
-                        'fitness': float(fitness[idx])
-                    })
-                    
-                    if len(top_3_models) >= 3:
-                        break
-        
-        # Convert real-valued individuals to integer representation
-        top_3_encoded = [{
-            'rank': idx + 1,
-            'encoded_architecture': convert_individual(model['individual'], to_real=False),
-            'fitness': float(model['fitness'])
-        } for idx, model in enumerate(top_3_models)]
-        
-        # Update best overall model if current experiment found better solution
+        # Update best model overall if needed
         if top_3_models[0]['fitness'] > best_fitness_overall:
             best_fitness_overall = top_3_models[0]['fitness']
             best_model_overall = top_3_models[0].copy()
         
         # Store results from this experiment
-        top_models_per_experiment[f"experiment_{exp_idx + 1}"] = {
-            'top_3_models': top_3_encoded,
-            'fitness_history': [float(x) for x in fitness_history_exp],
-            'F_history': [float(x) for x in f_history_exp]
-        }
+        top_models_per_experiment = []
+        all_best_models = []
+        all_fitness_histories = []
+        all_F_histories = []
+        top_models_per_experiment.append({
+            'top_3_models': [
+                {
+                    'individual': model['individual'],
+                    'fitness': float(model['fitness']) if isinstance(model['fitness'], (np.ndarray, np.number)) else model['fitness']
+                } for model in top_3_models
+            ],
+            'fitness_history': [float(x) if isinstance(x, (np.ndarray, np.number)) else x for x in fitness_history_exp],
+            'F_history': [float(x) if isinstance(x, (np.ndarray, np.number)) else x for x in f_history_exp]
+        })
         all_best_models.append(top_3_models[0])
         all_fitness_histories.append(fitness_history_exp)
         all_F_histories.append(f_history_exp)
         
-        # Save checkpoint after each experiment
-        checkpoint_path = os.path.join(checkpoint_dir, 'all_experiments.json')
-        os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
-        with open(checkpoint_path, 'w') as f:
-            json.dump(top_models_per_experiment, f, indent=2)
+        # Save final checkpoint for this experiment
+        final_checkpoint_path = os.path.join(saves_dir, f'final_checkpoint_exp{exp_idx+1}.json')
         
-        print(f"Resultados guardados en {checkpoint_path}")
+        # Prepare checkpoint data
+        checkpoint_data = {
+            'experiment': exp_idx,
+            'generation': generations,
+            'population': [{'individual': p['individual']} for p in population],
+            'fitness': [float(f) for f in fitness],
+            'best_model_exp': {
+                'individual': best_model_exp['individual'],
+                'fitness': float(best_model_exp['fitness']) if isinstance(best_model_exp['fitness'], (np.ndarray, np.number)) else best_model_exp['fitness']
+            },
+            'top_3_models': [
+                {
+                    'individual': model['individual'],
+                    'fitness': float(model['fitness']) if isinstance(model['fitness'], (np.ndarray, np.number)) else model['fitness']
+                } for model in top_3_models
+            ],
+            'fitness_history': [float(f) for f in fitness_history_exp],
+            'F_history': [float(f) for f in f_history_exp]
+        }
+        
+        # Convertir todo a tipos Python nativos
+        checkpoint_data = numpy_to_python(checkpoint_data)
+        
+        with open(final_checkpoint_path, 'w') as f:
+            json.dump(checkpoint_data, f, indent=2)
+        
+        print(f"Checkpoint final del experimento guardado en {final_checkpoint_path}")
         print(f"Mejor fitness en experimento {exp_idx+1}: {top_3_models[0]['fitness']}")
+        
+        # Reiniciar start_generation para los siguientes experimentos
+        start_generation = 0
     
-    # Save final results
-    best_architectures = {
-        "best_overall": {
-            "encoded_architecture": convert_individual(best_model_overall['individual'], to_real=False),
-            "fitness": float(best_model_overall['fitness'])
+    # Prepare final results
+    results = {
+        'best_model': {
+            'individual': best_model_overall['individual'],
+            'fitness': float(best_model_overall['fitness']) if isinstance(best_model_overall['fitness'], (np.ndarray, np.number)) else best_model_overall['fitness']
         },
-        "experiments": top_models_per_experiment
-    }
-    
-    best_arch_path = os.path.join(checkpoint_dir, 'best_architectures.json')
-    os.makedirs(os.path.dirname(best_arch_path), exist_ok=True)
-    with open(best_arch_path, 'w') as f:
-        json.dump(best_architectures, f, indent=2)
-    
-    print(f"Mejores arquitecturas guardadas en {best_arch_path}")
-    
-    return {
-        'best_model': best_model_overall,
         'top_models_per_experiment': top_models_per_experiment,
-        'all_best_models': all_best_models,
-        'all_fitness_histories': all_fitness_histories,
-        'all_F_histories': all_F_histories
+        'all_fitness_histories': [[float(f) if isinstance(f, (np.ndarray, np.number)) else f for f in history] for history in all_fitness_histories],
+        'all_F_histories': [[float(f) if isinstance(f, (np.ndarray, np.number)) else f for f in history] for history in all_F_histories]
     }
+    
+    # Convertir todo a tipos Python nativos
+    results = numpy_to_python(results)
+    
+    # Guardar checkpoint final
+    final_checkpoint_path = os.path.join(saves_dir, f'final_checkpoint.json')
+    final_checkpoint_data = {
+        'best_fitness_overall': float(best_fitness_overall) if isinstance(best_fitness_overall, (np.ndarray, np.number)) else best_fitness_overall,
+        'best_model_overall': {
+            'individual': best_model_overall['individual'],
+            'fitness': float(best_model_overall['fitness']) if isinstance(best_model_overall['fitness'], (np.ndarray, np.number)) else best_model_overall['fitness']
+        },
+        'top_models_per_experiment': numpy_to_python(top_models_per_experiment),
+        'all_best_models': [
+            {
+                'individual': model['individual'],
+                'fitness': float(model['fitness']) if isinstance(model['fitness'], (np.ndarray, np.number)) else model['fitness']
+            } for model in all_best_models
+        ],
+        'all_fitness_histories': numpy_to_python(all_fitness_histories),
+        'all_F_histories': numpy_to_python(all_F_histories)
+    }
+    
+    # Convertir todo a tipos Python nativos
+    final_checkpoint_data = numpy_to_python(final_checkpoint_data)
+    
+    with open(final_checkpoint_path, 'w') as f:
+        json.dump(final_checkpoint_data, f, indent=2)
+    
+    print(f"\nBúsqueda completada. Checkpoint final guardado en {final_checkpoint_path}")
+    
+    return results
