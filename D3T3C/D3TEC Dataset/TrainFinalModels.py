@@ -1,7 +1,9 @@
+# %%
 # %% [markdown]
 # # ERpncoding
 
 # %%
+from sklearn.model_selection import StratifiedKFold
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -24,7 +26,6 @@ import torch.multiprocessing as mp
 import torchaudio.transforms as T
 from torch.cuda.amp import autocast, GradScaler
 import torch.utils.checkpoint as checkpoint
-torch.cuda.memory_summary()
 
 
     
@@ -1135,36 +1136,29 @@ def save_results_to_csv(file_path, architecture, results):
 
 
 
-def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batch_size= 1, save_file="results.csv",
-                 verbose=False):
-    print("📌 Iniciando entrenamiento de modelos...")
+def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batch_size=1, save_file="final_results.csv", verbose=False):
+    print("📌 Iniciando entrenamiento con 10-Fold Cross-Validation...")
 
-    config = Config(epochs=epochs, window_size=2)
+    config = Config(epochs=epochs, window_size=2, checkpoint_file="final_checkpoint.json")
     checkpoint = load_checkpoint(config.checkpoint_file)
 
     print("📌 Cargando y procesando audios en tiempo de ejecución...")
     dataset = AudioDataset(directory, dataset_csv, config.window_size)
     print(f"📌 Total de muestras cargadas: {len(dataset)}")
-    dataset = [d for d in dataset if d is not None]  # ⚠️ Filtrar valores `None`
+    dataset = [d for d in dataset if d is not None]  # Filtrar posibles valores None
 
     print(f"📌 Total de muestras antes del balanceo: {len(dataset)}")
 
-    # 🔹 Balanceo de clases: cortar al tamaño de la clase minoritaria
-    spectrograms, labels = zip(*dataset)  # Extraer espectrogramas y etiquetas
-    spectrograms = torch.stack(spectrograms)  # Convertir a tensor
+    # Balanceo de clases: cortar al tamaño de la clase minoritaria
+    spectrograms, labels = zip(*dataset)
+    spectrograms = torch.stack(spectrograms)
     labels = torch.tensor(labels)
 
-    # 🔹 Contar muestras por clase
     num_class_0 = (labels == 0).sum().item()
     num_class_1 = (labels == 1).sum().item()
-    min_class_count = min(num_class_0, num_class_1)  # Tamaño de la clase minoritaria
+    min_class_count = min(num_class_0, num_class_1)
 
-    print(f"📊 Cantidad de muestras por clase antes del balanceo:")
-    print(f"   🔹 Clase 0 (No Depresión): {num_class_0}")
-    print(f"   🔹 Clase 1 (Depresión): {num_class_1}")
-    print(f"   📌 Ajustando ambas clases a {min_class_count} muestras.")
-
-    # 🔹 Seleccionar aleatoriamente la misma cantidad de muestras de cada clase
+    print(f"📊 Ajustando ambas clases a {min_class_count} muestras.")
     idx_class_0 = torch.where(labels == 0)[0][:min_class_count]
     idx_class_1 = torch.where(labels == 1)[0][:min_class_count]
     balanced_indices = torch.cat((idx_class_0, idx_class_1))
@@ -1174,35 +1168,16 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
 
     print(f"📌 Total de muestras después del balanceo: {spectrograms.shape[0]}")
 
-    # 🔹 Dividir en train/val/test con random_state=42 para reproducibilidad
-    print("📌 Dividiendo datos en conjuntos de entrenamiento, validación y prueba...")
-    X_train, X_test, Y_train, Y_test = train_test_split(spectrograms, labels, test_size=0.2, stratify=labels, random_state=42)
-    X_train, X_val, Y_train, Y_val = train_test_split(X_train, Y_train, test_size=0.2, stratify=Y_train, random_state=42)
+    X_np = spectrograms.numpy()
+    y_np = labels.numpy()
+    print("Forma de datos para KFold:")
+    print("X_np:", X_np.shape)
+    print("y_np:", y_np.shape)
 
-    print(f"📊 Tamaño de los conjuntos después del balanceo:")
-    print(f"   🔹 Train: {X_train.shape[0]}")
-    print(f"   🔹 Validation: {X_val.shape[0]}")
-    print(f"   🔹 Test: {X_test.shape[0]}")
+    kfold = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
-    # 🔹 Crear DataLoaders sin shuffle (manteniendo el orden para checkpoints)
-    print("📌 Creando DataLoaders...")
-    train_loader = DataLoader(TensorDataset(X_train, Y_train), batch_size=batch_size,
-                                num_workers=0, pin_memory=True, shuffle=True)
-    val_loader = DataLoader(TensorDataset(X_val, Y_val), batch_size=batch_size,
-                            num_workers=0, pin_memory=True)
-    test_loader = DataLoader(TensorDataset(X_test, Y_test), batch_size=batch_size,
-                            num_workers=0, pin_memory=True)
-
-
-    print("📌 Mostrando dos espectrogramas de ejemplo...")
-    show_first_two_spectrograms(dataset)
-
-    # 🔹 Obtener `input_shape` automáticamente del primer batch
-    example_batch, _ = next(iter(train_loader))
-    example_batch = example_batch.unsqueeze(1)  # 🔹 Añadir dimensión de canal
-    input_shape = example_batch.shape[1:]  # Extraer shape sin batch_size
-    print(f"📌 Input shape corregido automáticamente: {input_shape}")
-
+    if X_np.shape[0] != y_np.shape[0]:
+        raise ValueError("❌ Error: Los datos de entrada y las etiquetas tienen tamaños diferentes.")
 
     architectures = load_architectures_from_csv(csv_path_architectures)
     print(f"📌 Total de arquitecturas a evaluar: {len(architectures)}")
@@ -1210,33 +1185,81 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
     for i, architecture in enumerate(architectures):
         if i <= checkpoint["last_completed"]:
             print(f"⏭️ Saltando arquitectura {i+1}/{len(architectures)} (ya entrenada)...")
-            continue  # Saltar arquitecturas ya completadas
+            continue
 
-        print(f"\n🚀 Evaluando arquitectura {i + 1}/{len(architectures)}...")
+        print(f"\n🚀 Evaluando arquitectura {i + 1}/{len(architectures)} con 10-Fold Cross-Validation...")
 
-        # 📌 Construcción del modelo
-        model = BuildPyTorchModel(architecture, input_shape=input_shape, verbose=verbose)
-        
-       
-        #model.to(dtype=torch.float32)  # Forzar que use float32 en vez de bfloat16
+        model = BuildPyTorchModel(architecture, input_shape=(1, 128, 128), verbose=verbose)
+        fold_results = []  # Lista para almacenar resultados de cada fold
 
-        print("📌 Modelo construido. Iniciando entrenamiento...")
-        torch.cuda.empty_cache()
-        torch.cuda.memory_allocated()
+        for fold, (train_idx, val_idx) in enumerate(kfold.split(X_np, y_np)):
+            print(f"\n📌 Fold {fold+1}/10 - Entrenando modelo...")
 
-        # 📌 Entrenar y evaluar modelo
-        results = train_and_evaluate_model(model, train_loader, val_loader, test_loader, config)
+            fold_model = BuildPyTorchModel(architecture, input_shape=(1, 128, 128), verbose=verbose)
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            fold_model = fold_model.to(device)
 
-        # 📌 Guardar resultados en CSV
-        save_results_to_csv(save_file, architecture, results)
+            X_train, X_val = spectrograms[train_idx], spectrograms[val_idx]
+            Y_train, Y_val = labels[train_idx], labels[val_idx]
 
-        # 📌 Guardar checkpoint
+            train_loader = DataLoader(TensorDataset(X_train, Y_train), batch_size=batch_size, shuffle=True)
+            val_loader = DataLoader(TensorDataset(X_val, Y_val), batch_size=batch_size, shuffle=False)
+
+            optimizer = optim.Adam(fold_model.parameters(), lr=0.001)
+            criterion = nn.BCEWithLogitsLoss()
+
+            for epoch in range(config.epochs):
+                fold_model.train()
+                running_loss = 0.0
+                for inputs, batch_labels in train_loader:
+                    inputs, batch_labels = inputs.to(device), batch_labels.float().to(device)
+                    optimizer.zero_grad()
+                    outputs = fold_model(inputs)
+                    batch_labels = batch_labels.view(-1, 1)
+                    loss = criterion(outputs, batch_labels)
+                    loss.backward()
+                    optimizer.step()
+                    running_loss += loss.item()
+
+                print(f"🔹 Fold {fold+1} - Epoch {epoch+1}/{config.epochs} - Loss: {running_loss / len(train_loader):.4f}")
+
+            fold_model.eval()
+            y_true, y_pred = [], []
+            with torch.no_grad():
+                for inputs, batch_labels in val_loader:
+                    inputs, batch_labels = inputs.to(device), batch_labels.float().to(device)
+                    batch_labels = batch_labels.view(-1, 1)
+                    outputs = fold_model(inputs).squeeze()
+                    predictions = (torch.sigmoid(outputs) > 0.5).int()
+                    y_true.extend(batch_labels.cpu().numpy().tolist())
+                    y_pred.extend(predictions.cpu().numpy().tolist())
+
+            accuracy = (np.array(y_true) == np.array(y_pred)).mean()
+            precision, recall, f1, specificity = calculate_metrics(y_true, y_pred)
+            fold_result = [running_loss / len(train_loader), accuracy, precision, recall, f1, specificity]
+            fold_results.append(fold_result)
+            # Ya no imprimimos aquí los resultados de cada fold
+
+        # Al finalizar todos los folds, imprimir los resultados individuales
+        print("\n📌 Resultados individuales por fold:")
+        for idx, result in enumerate(fold_results):
+            print(f"Fold {idx+1}:")
+            print(f"  Loss: {result[0]:.4f}")
+            print(f"  Accuracy: {result[1]:.4f}")
+            print(f"  Precision: {result[2]:.4f}")
+            print(f"  Recall: {result[3]:.4f}")
+            print(f"  F1: {result[4]:.4f}")
+            print(f"  Specificity: {result[5]:.4f}\n")
+
+        avg_results = np.mean(fold_results, axis=0).tolist()
+        print(f"📊 Resultados Promediados - Accuracy: {avg_results[1]:.4f}, F1: {avg_results[4]:.4f}")
+
+        save_results_to_csv(save_file, architecture, avg_results)
+
         print(f"📌 Arquitectura {i+1} evaluada con éxito. Guardando checkpoint...")
         save_checkpoint(config.checkpoint_file, i)
+
     print("✅ Entrenamiento completado con éxito.")
-
-
-
 
 # 📌 Función para calcular F1-score, precisión, recall y especificidad
 def calculate_metrics(y_true, y_pred):
@@ -1324,11 +1347,63 @@ def load_architectures_from_csv(csv_path):
     return csv_path
 
 models_to_train = [
-    [2, 0, 0, 0, 7, 0, 0, 0, 0, 32, 1, 0, 7, 0, 0, 0, 2, 0, 0, 0, 0, 7, 0, 0, 0, 4, 0, 0, 7, 0, 0, 0, 0, 32, 0, 0, 0, 4, 0, 0, 0, 32, 0, 0, 3, 0, 0, 0]
+   [
+      4,
+      512,
+      0,
+      0,
+      4,
+      512,
+      0,
+      0,
+      7,
+      0,
+      0,
+      0,
+      4,
+      1,
+      0,
+      0,
+      4,
+      1,
+      0,
+      0,
+      4,
+      512,
+      0,
+      0,
+      1,
+      4,
+      0,
+      0,
+      7,
+      0,
+      0,
+      0,
+      4,
+      512,
+      2,
+      0,
+      4,
+      512,
+      0,
+      0,
+      4,
+      512,
+      3,
+      0,
+      7,
+      0,
+      0,
+      0
+    ]
 ]
 
-train_models("EncodedChromosomes_V3.csv", "Dataset.csv", "./SM-27",
-             save_file="EncodedChromosomes_V3_results.csv", verbose=False, batch_size=400, epochs=15)
+train_models(models_to_train, "Dataset.csv", "./SM-27",
+             save_file="Final_EncodedChromosomes_V3_results.csv", verbose=False, batch_size=400, epochs=100)
 
 
 # %%
+
+
+

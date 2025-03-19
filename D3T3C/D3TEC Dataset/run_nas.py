@@ -17,6 +17,7 @@ Argumentos:
     --n-experiments: Número de experimentos (default: 5)
     --checkpoint-dir: Directorio para guardar los checkpoints (default: ./checkpoints)
     --auto-adaptation: Habilitar adaptación automática del factor F (default: True)
+    --tournament: Usar selección por torneo para favorecer la diversidad
 """
 
 import argparse
@@ -41,6 +42,9 @@ def main():
                         help='Directorio para guardar los checkpoints (default: ./checkpoints)')
     parser.add_argument('--auto-adaptation', action='store_true', default=True,
                         help='Habilitar adaptación automática del factor F (default: True)')
+    parser.add_argument('--selection-method', choices=['random', 'tournament', 'sus'], default='tournament',
+                    help='Método de selección para DE: random, tournament o sus (Stochastic Universal Sampling)')
+
     
     # Parsear argumentos
     args = parser.parse_args()
@@ -60,6 +64,7 @@ def main():
     print(f"- Directorio de checkpoints: {checkpoint_dir}")
     print(f"- Auto-adaptación: {args.auto_adaptation}")
     print(f"- Nuevo inicio: {args.new_run}")
+    print(f"- Selección por torneo: {args.tournament}")
     
     # Cargar el modelo surrogate
     print("\nCargando modelo surrogate...")
@@ -79,7 +84,8 @@ def main():
             n_experiments=n_experiments,
             auto_adaptation=args.auto_adaptation,
             checkpoint_dir=checkpoint_dir,
-            new_run=True
+            new_run=True,
+            tournament=args.tournament
         )
     else:
         print("Buscando el último checkpoint para reanudar...")
@@ -95,7 +101,8 @@ def main():
                 auto_adaptation=args.auto_adaptation,
                 checkpoint_dir=checkpoint_dir,
                 resume_from=latest_checkpoint,
-                new_run=False
+                new_run=False,
+                tournament=args.tournament
             )
         else:
             print("No se encontraron checkpoints anteriores. Iniciando nueva búsqueda...")
@@ -106,7 +113,8 @@ def main():
                 n_experiments=n_experiments,
                 auto_adaptation=args.auto_adaptation,
                 checkpoint_dir=checkpoint_dir,
-                new_run=True
+                new_run=True,
+                tournament=args.tournament
             )
     
     print("\nBúsqueda completada.")

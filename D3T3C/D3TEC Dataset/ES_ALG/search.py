@@ -10,6 +10,8 @@ import datetime
 import glob
 import re
 import matplotlib.pyplot as plt
+from .normalizer import normalize_individual, batch_normalize_individuals
+import inspect
 
      # Prepare checkpoint data - convert all NumPy arrays to Python native types
 def numpy_to_python(obj):
@@ -241,18 +243,130 @@ def map_to_architecture_params(latin_hypercube_sample):
     return {"type": "DontCare"}
 
 def load_surrogate_model(model_path):
-    """Load the surrogate model for architecture evaluation."""
+    """
+    Carga el modelo surrogate para evaluación de arquitecturas.
+    
+    Args:
+        model_path: Ruta al archivo del modelo (.h5 para modelos Keras, .pkl para modelos scikit-learn)
+        
+    Returns:
+        Modelo cargado
+        
+    Raises:
+        ValueError: Si la extensión del archivo no es soportada
+    """
     ext = os.path.splitext(model_path)[1].lower()
+    
     if ext == '.h5':
+        # Cargar modelo Keras
+        import tensorflow as tf
         return tf.keras.models.load_model(model_path, compile=False)
+    elif ext == '.pkl':
+        # Cargar modelo scikit-learn (como Random Forest)
+        import pickle
+        import joblib
+        
+        print(f"Intentando cargar modelo scikit-learn desde {model_path}")
+        
+        # Verificar que el archivo existe
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"El archivo {model_path} no existe")
+        
+        # Verificar el tamaño del archivo
+        file_size = os.path.getsize(model_path)
+        print(f"Tamaño del archivo: {file_size} bytes")
+        
+        # Intentar cargar con pickle
+        try:
+            print("Intentando cargar con pickle...")
+            with open(model_path, 'rb') as f:
+                model = pickle.load(f)
+            print("Modelo cargado exitosamente con pickle")
+            return model
+        except Exception as e:
+            print(f"Error al cargar con pickle: {str(e)}")
+            
+            # Intentar cargar con joblib como alternativa
+            try:
+                print("Intentando cargar con joblib...")
+                model = joblib.load(model_path)
+                print("Modelo cargado exitosamente con joblib")
+                return model
+            except Exception as e2:
+                print(f"Error al cargar con joblib: {str(e2)}")
+                
+                # Si ambos métodos fallan, intentar con una versión específica de pickle
+                try:
+                    print("Intentando cargar con pickle protocolo 4...")
+                    with open(model_path, 'rb') as f:
+                        model = pickle.load(f, fix_imports=True, encoding='latin1')
+                    print("Modelo cargado exitosamente con pickle protocolo 4")
+                    return model
+                except Exception as e3:
+                    print(f"Error al cargar con pickle protocolo 4: {str(e3)}")
+                    
+                    # Si todo falla, proporcionar un mensaje de error detallado
+                    error_msg = f"""
+                    Error al cargar el modelo desde {model_path}
+                    Error con pickle: {str(e)}
+                    Error con joblib: {str(e2)}
+                    Error con pickle protocolo 4: {str(e3)}
+
+                    Por favor, asegúrese de que:
+                    1. El modelo fue guardado correctamente
+                    2. El modelo fue guardado con una versión compatible de scikit-learn
+                    3. El archivo no está corrupto
+"""
+                    raise RuntimeError(error_msg)
     else:
-        raise ValueError(f"Unsupported model extension: {ext}")
+        raise ValueError(f"Extensión de modelo no soportada: {ext}. Use .h5 para modelos Keras o .pkl para modelos scikit-learn.")
 
 def evaluate_architecture(ind, surrogate_model):
-    """Evaluate an architecture using the surrogate model."""
+    """
+    Evalúa una arquitectura utilizando el modelo surrogate.
+    
+    Args:
+        ind: Individuo a evaluar
+        surrogate_model: Modelo surrogate para la evaluación
+        
+    Returns:
+        Fitness predicho por el modelo surrogate
+    """
     ind_copy = copy.deepcopy(ind)
-    reshaped_ind = np.array(ind_copy).reshape(1, -1)
-    return surrogate_model.predict(reshaped_ind, verbose=0)[0]
+    normalized_ind = normalize_individual(ind_copy)
+    reshaped_ind = np.array(normalized_ind).reshape(1, -1)
+    
+    # Verificar si el modelo es de Keras o scikit-learn
+    if hasattr(surrogate_model, 'predict') and 'verbose' in inspect.signature(surrogate_model.predict).parameters:
+        # Es un modelo Keras que acepta verbose
+        return surrogate_model.predict(reshaped_ind, verbose=0)[0]
+    else:
+        # Es un modelo scikit-learn que no acepta verbose
+        return surrogate_model.predict(reshaped_ind)[0]
+
+def evaluate_population(population, surrogate_model):
+    """
+    Evalúa una población completa utilizando el modelo surrogate.
+    
+    Args:
+        population: Lista de individuos a evaluar
+        surrogate_model: Modelo surrogate para la evaluación
+        
+    Returns:
+        Lista de valores de fitness para cada individuo
+    """
+    # Normalizar toda la población
+    normalized_population = batch_normalize_individuals(population)
+    
+    # Verificar si el modelo es de Keras o scikit-learn
+    if hasattr(surrogate_model, 'predict') and 'verbose' in inspect.signature(surrogate_model.predict).parameters:
+        # Es un modelo Keras que acepta verbose
+        fitness_values = surrogate_model.predict(normalized_population, verbose=0)
+    else:
+        # Es un modelo scikit-learn que no acepta verbose
+        fitness_values = surrogate_model.predict(normalized_population)
+    
+    return fitness_values
 
 def crossover(parent1, parent2, cr_rate=0.5):
     """Perform crossover between two parent architectures."""
@@ -330,9 +444,84 @@ def get_succ_m(trial_fitness, parent_fitness):
     succ_m_count = sum(1 for i in range(len(trial_fitness)) if trial_fitness[i] > parent_fitness[i])
     return succ_m_count
 
+def tournament_selection(population, fitness, tournament_size=3):
+    """
+    Realiza selección por torneo para elegir un individuo de la población.
+    
+    Args:
+        population: Lista de individuos en la población
+        fitness: Array de valores de fitness para cada individuo
+        tournament_size: Tamaño del torneo (número de individuos que compiten)
+        
+    Returns:
+        Índice del individuo seleccionado
+    """
+    # Asegurar que tournament_size no sea mayor que el tamaño de la población
+    tournament_size = min(tournament_size, len(population))
+    
+    # Seleccionar aleatoriamente individuos para el torneo
+    tournament_indices = np.random.choice(len(population), size=tournament_size, replace=False)
+    
+    # Obtener fitness de los individuos seleccionados usando el array de fitness
+    tournament_fitness = [fitness[i] for i in tournament_indices]
+    
+    # Seleccionar el mejor individuo del torneo (mayor fitness)
+    best_tournament_idx = np.argmax(tournament_fitness)
+    winner_idx = tournament_indices[best_tournament_idx]
+    
+    return winner_idx
+
+def are_individuals_different(ind1, ind2, threshold=0.1):
+    """
+    Compara dos individuos para determinar si son significativamente diferentes.
+    
+    Args:
+        ind1: Primer individuo
+        ind2: Segundo individuo
+        threshold: Umbral de diferencia (porcentaje de genes diferentes requerido)
+        
+    Returns:
+        True si los individuos son diferentes, False en caso contrario
+    """
+    if len(ind1) != len(ind2):
+        return True
+    
+    # Contar cuántos genes son diferentes
+    different_genes = sum(1 for g1, g2 in zip(ind1, ind2) if g1 != g2)
+    
+    # Calcular el porcentaje de diferencia
+    difference_percentage = different_genes / len(ind1)
+    
+    return difference_percentage >= threshold
+
+def sus_selection(fitness, num_selections):
+    """
+    Realiza Stochastic Universal Sampling (SUS) sobre el vector de fitness.
+    
+    Args:
+        fitness (np.ndarray): Array de fitness de la población.
+        num_selections (int): Número de individuos a seleccionar.
+        
+    Returns:
+        List[int]: Índices de los individuos seleccionados.
+    """
+    total_fitness = np.sum(fitness)
+    pointer_distance = total_fitness / num_selections
+    start_point = np.random.uniform(0, pointer_distance)
+    pointers = [start_point + i * pointer_distance for i in range(num_selections)]
+    cum_sum = np.cumsum(fitness)
+    selected_indices = []
+    i = 0
+    for pointer in pointers:
+        # Avanzar en la suma acumulativa hasta que el puntero sea menor o igual
+        while i < len(cum_sum) and pointer > cum_sum[i]:
+            i += 1
+        selected_indices.append(i if i < len(fitness) else len(fitness) - 1)
+    return selected_indices
+
 def unified_search(surrogate_model, population_size=10, generations=100, n_experiments=1, 
                   F=0.5, cr_rate=0.5, auto_adaptation=True, checkpoint_dir='./checkpoints',
-                  resume_from=None, new_run=False):
+                  resume_from=None, new_run=False, selection_method='tournament'):
     """
     Función unificada para búsqueda de arquitecturas neurales usando Evolución Diferencial.
     
@@ -347,6 +536,7 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
         checkpoint_dir: Directorio para guardar checkpoints
         resume_from: Ruta a un checkpoint para reanudar la búsqueda
         new_run: Si se debe iniciar una nueva búsqueda, ignorando checkpoints existentes
+        selection_method: Método de selección ('random', 'tournament', o 'sus')
         
     Returns:
         Diccionario con resultados de la búsqueda
@@ -492,17 +682,26 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
             population = pop_gen(population_size)
             
             # Evaluar población inicial
-            fitness = np.array([evaluate_architecture(ind['individual'], surrogate_model) for ind in tqdm(population, desc="Evaluando población inicial")])
+            print("Evaluando población inicial...")
+            trial_population = []
+            for i in range(population_size):
+                trial_population.append(population[i]['individual'])
+            
+            # Usar la función evaluate_population para evaluar toda la población de una vez
+            fitness_values = evaluate_population(trial_population, surrogate_model)
+            
+            for i in range(population_size):
+                population[i]['fitness'] = fitness_values[i]
             
             # Inicializar historiales
             fitness_history_exp = []
             f_history_exp = []
             
             # Inicializar mejor modelo del experimento
-            best_idx = np.argmax(fitness)
+            best_idx = np.argmax(fitness_values)
             best_model_exp = {
                 'individual': population[best_idx]['individual'],
-                'fitness': fitness[best_idx]
+                'fitness': fitness_values[best_idx]
             }
             
             # Inicializar mejor modelo global si es necesario
@@ -520,15 +719,54 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
             # Mutation and crossover
             for i in range(len(population)):
                 # Select random indices for mutation
-                while True:
-                    indices = np.random.choice(len(population), 3, replace=False)
-                    if i not in indices:
-                        break
-                    if len(population) <= 3:
-                        indices = np.random.choice(len(population), 3, replace=False)
-                
-                # Get individuals for mutation
-                a, b, c = population[indices[0]]['individual'], population[indices[1]]['individual'], population[indices[2]]['individual']
+                if selection_method == 'tournament':
+                    # Selección por torneo para elegir los individuos para la mutación
+                    a_idx = tournament_selection(population, fitness_values, tournament_size=3)
+                    
+                    # Para b_idx y c_idx, asegurarnos de seleccionar individuos diferentes
+                    # Intentar hasta 10 veces encontrar individuos diferentes
+                    max_attempts = 10
+                    attempts = 0
+                    found_different = False
+                    
+                    while not found_different and attempts < max_attempts:
+                        b_idx = tournament_selection(population, fitness_values, tournament_size=3)
+                        c_idx = tournament_selection(population, fitness_values, tournament_size=3)
+                        
+                        # Verificar si los individuos son diferentes comparando sus cromosomas
+                        a_ind = population[a_idx]['individual']
+                        b_ind = population[b_idx]['individual']
+                        c_ind = population[c_idx]['individual']
+                        
+                        # Verificar si son significativamente diferentes
+                        ab_different = are_individuals_different(a_ind, b_ind, threshold=0.1)
+                        ac_different = are_individuals_different(a_ind, c_ind, threshold=0.1)
+                        bc_different = are_individuals_different(b_ind, c_ind, threshold=0.1)
+                        
+                        if ab_different and ac_different and bc_different:
+                            found_different = True
+                        
+                        attempts += 1
+                    
+                    # Si no se encontraron individuos diferentes, seleccionar índices aleatorios
+                    if not found_different:
+                        indices = list(range(len(population)))
+                        np.random.shuffle(indices)
+                        a_idx, b_idx, c_idx = indices[:3]
+                        
+                    # Get individuals for mutation
+                    a, b, c = population[a_idx]['individual'], population[b_idx]['individual'], population[c_idx]['individual']
+                elif selection_method == 'sus':
+                    # Stochastic Universal Sampling
+                    selected_indices = sus_selection(fitness_values, 3)
+                    a_idx, b_idx, c_idx = selected_indices
+                    a, b, c = population[a_idx]['individual'], population[b_idx]['individual'], population[c_idx]['individual']
+                else:
+                    # Selección aleatoria clásica de DE
+                    indices = list(range(len(population)))
+                    indices.remove(i)  # Remove current index
+                    a_idx, b_idx, c_idx = np.random.choice(indices, 3, replace=False)
+                    a, b, c = population[a_idx]['individual'], population[b_idx]['individual'], population[c_idx]['individual']
                 
                 # Create mutant vector using DE/rand/1 strategy
                 a_real = convert_individual(a, to_real=True)
@@ -546,8 +784,20 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
                 mutant_fixed = fixArch(mutant_int, verbose=False)
                 
                 # Perform crossover
+                if selection_method == 'tournament':
+                    # Seleccionar padres para cruce mediante torneo
+                    parent_idx = tournament_selection(population, fitness_values, tournament_size=3)
+                    parent = population[parent_idx]['individual']
+                elif selection_method == 'sus':
+                    # Stochastic Universal Sampling para seleccionar padre
+                    selected_indices = sus_selection(fitness_values, 1)
+                    parent_idx = selected_indices[0]
+                    parent = population[parent_idx]['individual']
+                else:
+                    parent = population[i]['individual']
+                
                 trial = crossover(convert_individual(mutant_fixed, to_real=True), 
-                                 convert_individual(population[i]['individual'], to_real=True), 
+                                 convert_individual(parent, to_real=True), 
                                  cr_rate)
                 
                 # Convert back to integer representation for evaluation
@@ -560,43 +810,150 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
                 trial_population.append(trial_fixed)
             
             # Evaluate trial population
-            trial_fitness = np.array([evaluate_architecture(ind, surrogate_model) for ind in tqdm(trial_population, desc="Evaluando población de prueba")])
+            print("Evaluando población de prueba...")
+            trial_population_list = []
+            for i in range(population_size):
+                trial_population_list.append(trial_population[i])
+            
+            # Usar la función evaluate_population para evaluar toda la población de una vez
+            trial_fitness = evaluate_population(trial_population_list, surrogate_model)
             
             # Auto-adaptation of F parameter based on successful mutations
             if auto_adaptation and gen > 0:
                 # Contar mutaciones exitosas
-                succ_m = get_succ_m(trial_fitness, fitness)
+                succ_m = get_succ_m(trial_fitness, fitness_values)
                 succ_rate = succ_m / len(population)
                 
                 # Ajustar F según la tasa de éxito
                 if succ_rate < 0.2:  # Pocas mutaciones exitosas, reducir F
-                    F = max(0.1, F * 0.9)
+                    F = max(0.1, F * 0.8)
                     print(f"Pocas mutaciones exitosas ({succ_rate:.2f}). Reduciendo F a {F:.4f}")
-                elif succ_rate > 0.8:  # Muchas mutaciones exitosas, aumentar F
-                    F = min(1.0, F * 1.1)
+                elif succ_rate > 0.3:  # Muchas mutaciones exitosas, aumentar F
+                    F = min(1.0, F * 1.2)
                     print(f"Muchas mutaciones exitosas ({succ_rate:.2f}). Aumentando F a {F:.4f}")
                 else:
                     print(f"Tasa de mutaciones exitosas: {succ_rate:.2f}. Manteniendo F = {F:.4f}")
             
-            # Selection
-            for i in range(len(population)):
-                if trial_fitness[i] > fitness[i]:
-                    population[i]['individual'] = trial_population[i]
-                    fitness[i] = trial_fitness[i]
-                    
-                    # Update best model
-                    if fitness[i] > best_model_exp['fitness']:
-                        best_model_exp = {
-                            'individual': population[i]['individual'],
-                            'fitness': fitness[i]
-                        }
-            
-            # Update fitness history
-            fitness_history_exp.append(np.mean(fitness))
+            # Guardar F para graficar
             f_history_exp.append(F)
             
+            # Selection
+            for i in range(len(population)):
+                if selection_method == 'tournament':
+                    # En modo torneo, seleccionamos individuos para competir
+                    # El individuo de prueba compite con un individuo seleccionado por torneo
+                    competitor_idx = tournament_selection(population, fitness_values, tournament_size=3)
+                    
+                    # Verificar si el individuo de prueba es diferente al competidor
+                    trial_ind = trial_population[i]
+                    competitor_ind = population[competitor_idx]['individual']
+                    
+                    # Verificar si son significativamente diferentes
+                    are_different = are_individuals_different(trial_ind, competitor_ind, threshold=0.1)
+                    
+                    # Solo reemplazar si el fitness es mejor Y son individuos diferentes
+                    # o si el fitness es significativamente mejor (>5%)
+                    if (trial_fitness[i] > population[competitor_idx]['fitness'] and 
+                        (are_different or trial_fitness[i] > population[competitor_idx]['fitness'] * 1.05)):
+                        population[competitor_idx] = {
+                            'individual': trial_population[i],
+                            'fitness': trial_fitness[i]
+                        }
+                elif selection_method == 'sus':
+                    # Stochastic Universal Sampling para seleccionar individuos
+                    selected_indices = sus_selection(fitness_values, 1)
+                    competitor_idx = selected_indices[0]
+                    
+                    # Verificar si el individuo de prueba es diferente al competidor
+                    trial_ind = trial_population[i]
+                    competitor_ind = population[competitor_idx]['individual']
+                    
+                    # Verificar si son significativamente diferentes
+                    are_different = are_individuals_different(trial_ind, competitor_ind, threshold=0.1)
+                    
+                    # Solo reemplazar si el fitness es mejor Y son individuos diferentes
+                    # o si el fitness es significativamente mejor (>5%)
+                    if (trial_fitness[i] > population[competitor_idx]['fitness'] and 
+                        (are_different or trial_fitness[i] > population[competitor_idx]['fitness'] * 1.05)):
+                        population[competitor_idx] = {
+                            'individual': trial_population[i],
+                            'fitness': trial_fitness[i]
+                        }
+                else:
+                    # Selección clásica de DE (one-to-one)
+                    # Solo reemplazar si el fitness es mejor
+                    if trial_fitness[i] > population[i]['fitness']:
+                        population[i] = {
+                            'individual': trial_population[i],
+                            'fitness': trial_fitness[i]
+                        }
+            
+            # Update fitness array
+            fitness_values = np.array([ind['fitness'] for ind in population])
+            
+            # Update best model
+            best_idx = np.argmax(fitness_values)
+            if fitness_values[best_idx] > best_model_exp['fitness']:
+                best_model_exp = {
+                    'individual': population[best_idx]['individual'],
+                    'fitness': fitness_values[best_idx]
+                }
+            
+            # Update fitness history
+            fitness_history_exp.append(np.mean(fitness_values))
+            
             # Print current best fitness
-            print(f"Mejor fitness en generación {gen+1}: {best_model_exp['fitness']}")
+            best_fitness = best_model_exp['fitness']
+            if isinstance(best_fitness, np.ndarray):
+                best_fitness = best_fitness.item()
+            print(f"Mejor fitness en generación {gen+1}: {best_fitness:.6f}")
+            
+            # Imprimir top 5 de fitness
+            sorted_indices = np.argsort(fitness_values)[::-1]  # Ordenar de mayor a menor
+            print(f"\nTop 5 fitness en generación {gen+1}:")
+            for j in range(min(5, len(population))):
+                idx = int(sorted_indices[j])  # Convertir a entero escalar
+                # Obtener el fitness directamente del individuo en la población
+                fitness_value = population[idx]['fitness']
+                if isinstance(fitness_value, np.ndarray):
+                    fitness_value = fitness_value.item()
+                
+                # Obtener el individuo completo
+                ind = population[idx]['individual']
+                
+                # Mostrar los primeros 5 y últimos 5 elementos
+                if isinstance(ind, np.ndarray):
+                    ind_preview_start = ind[:5].tolist()
+                    ind_preview_end = ind[-5:].tolist()
+                else:
+                    ind_preview_start = ind[:5]
+                    ind_preview_end = ind[-5:]
+                
+                print(f"  {j+1}. Fitness: {fitness_value:.6f}")
+                print(f"     Primeros 5: {ind_preview_start}")
+                print(f"     Últimos 5: {ind_preview_end}")
+                print(f"     Longitud: {len(ind)}")
+            
+            # Verificar diversidad de la población
+            unique_individuals = []
+            for i, ind in enumerate(population):
+                is_unique = True
+                ind_array = np.array(ind['individual'])
+                
+                # Comparar con individuos ya identificados como únicos
+                for unique_ind in unique_individuals:
+                    unique_array = np.array(unique_ind['individual'])
+                    if not are_individuals_different(ind_array, unique_array, threshold=0.1):
+                        is_unique = False
+                        break
+                
+                if is_unique:
+                    unique_individuals.append(ind)
+            
+            print(f"Diversidad: {len(unique_individuals)}/{len(population)} individuos significativamente diferentes (umbral 10%)")
+            
+            # Imprimir valor F actual
+            print(f"Valor F actual: {F:.6f}")
             
             # Save checkpoint every 10 generations or at the end
             if (gen + 1) % 10 == 0 or gen == generations - 1:
@@ -625,10 +982,10 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
                         {
                             'individual': p['individual'],
                             # Usar el valor de fitness del array de fitness en lugar de buscarlo en el diccionario
-                            'fitness': float(fitness[i]) if isinstance(fitness[i], (np.ndarray, np.number)) else fitness[i]
+                            'fitness': float(fitness_values[i]) if isinstance(fitness_values[i], (np.ndarray, np.number)) else fitness_values[i]
                         } for i, p in enumerate(population)
                     ],
-                    'fitness': [float(f) for f in fitness] if isinstance(fitness, np.ndarray) else fitness,
+                    'fitness': [float(f) for f in fitness_values] if isinstance(fitness_values, np.ndarray) else fitness_values,
                     'best_model_exp': {
                         'individual': best_model_exp['individual'],
                         'fitness': float(best_model_exp['fitness']) if isinstance(best_model_exp['fitness'], (np.ndarray, np.number)) else best_model_exp['fitness']
@@ -638,13 +995,6 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
                         'fitness': float(best_model_overall['fitness']) if isinstance(best_model_overall['fitness'], (np.ndarray, np.number)) else best_model_overall['fitness']
                     },
                     'fitness_history_exp': [float(x) for x in fitness_history_exp],
-                    'unique_models': [
-                        {
-                            'individual': ind['individual'],
-                            # Usar el valor de fitness del array de fitness en lugar de buscarlo en el diccionario
-                            'fitness': float(fitness[i]) if isinstance(fitness[i], (np.ndarray, np.number)) else fitness[i]
-                        } for i, ind in enumerate(population[:10])  # Guardar solo los 10 mejores modelos
-                    ],
                     'F': float(F) if isinstance(F, (np.ndarray, np.number)) else F,
                     'cr_rate': float(cr_rate) if isinstance(cr_rate, (np.ndarray, np.number)) else cr_rate
                 }
@@ -660,7 +1010,7 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
                 print(f"Checkpoint guardado en {checkpoint_path}")
         
         # Get top 3 models from current experiment
-        sorted_indices = np.argsort(fitness)[::-1]  # Ordenados de mayor a menor fitness
+        sorted_indices = np.argsort(fitness_values)[::-1]  # Ordenados de mayor a menor fitness
         top_3_models = []
         
         # Tomamos los 3 mejores modelos
@@ -668,7 +1018,7 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
             idx = int(sorted_indices[i])
             top_3_models.append({
                 'individual': population[idx]['individual'],
-                'fitness': float(fitness[idx]) if isinstance(fitness[idx], (np.ndarray, np.number)) else fitness[idx]
+                'fitness': float(fitness_values[idx]) if isinstance(fitness_values[idx], (np.ndarray, np.number)) else fitness_values[idx]
             })
         
         # Update best model overall if needed
@@ -680,6 +1030,8 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
         plot_and_save_metrics(fitness_history_exp, f_history_exp, saves_dir, exp_idx)
         
         # Almacenar historiales para la gráfica combinada
+        all_fitness_histories = []
+        all_F_histories = []
         all_fitness_histories.append(fitness_history_exp)
         all_F_histories.append(f_history_exp)
         
@@ -710,7 +1062,7 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
             'experiment': exp_idx,
             'generation': generations,
             'population': [{'individual': p['individual']} for p in population],
-            'fitness': [float(f) for f in fitness],
+            'fitness': [float(f) for f in fitness_values],
             'best_model_exp': {
                 'individual': best_model_exp['individual'],
                 'fitness': float(best_model_exp['fitness']) if isinstance(best_model_exp['fitness'], (np.ndarray, np.number)) else best_model_exp['fitness']
