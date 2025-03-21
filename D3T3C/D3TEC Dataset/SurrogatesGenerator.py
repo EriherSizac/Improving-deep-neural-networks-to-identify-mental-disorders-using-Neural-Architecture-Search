@@ -24,7 +24,7 @@ import torch.multiprocessing as mp
 import torchaudio.transforms as T
 from torch.cuda.amp import autocast, GradScaler
 import torch.utils.checkpoint as checkpoint
-#torch.cuda.memory_summary()
+torch.cuda.memory_summary()
 
 
     
