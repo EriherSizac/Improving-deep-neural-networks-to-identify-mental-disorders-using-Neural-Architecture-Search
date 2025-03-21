@@ -28,7 +28,7 @@ import torch.utils.checkpoint as checkpoint
 
 
     
-    # 🔹 Optimización de cuDNN
+    # Optimización de cuDNN
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.deterministic = False
 #torch.set_num_threads(1)  # Prueba con 4, 2 o 1
@@ -279,8 +279,8 @@ def encode_model_architecture(model_dict, max_alleles=48):
                 encoded_layer = [layer_type_idx, param1, 0, 0]
 
             elif layer['type'] == 'Dropout':
-                param1 = next((key for key, value in dropout_options.items() if value == layer.get('rate', 0.2)), 0)
-                encoded_layer = [layer_type_idx, param1, 0, 0]
+                rate = dropout_options.get(layer.get('rate', 0.2), 0.2)
+                encoded_layer = [layer_type_idx, rate, 0, 0]
 
             elif layer['type'] == 'BatchNorm':
                 encoded_layer = [layer_type_idx, 0, 0, 0]
@@ -640,6 +640,14 @@ class BuildPyTorchModel(nn.Module):
         return x
 
     def forward(self, x):
+        # Check if input is flattened (2D) and reshape it to 4D if needed
+        if x.dim() == 2:
+            # Assuming the flattened tensor is from a 128x128 image with 1 channel
+            # Reshape to [batch_size, 1, 128, 128]
+            batch_size = x.size(0)
+            x = x.view(batch_size, 1, 256, 256)
+            print(f"⚠️ Reshaping flattened input from 2D to 4D: {x.shape}")
+        
         if self.initial_conv is not None:
             x = self.initial_conv(x)
         for i, module in enumerate(self.feature_extractor):
@@ -760,7 +768,6 @@ def map_to_architecture_params(latin_hypercube_sample):
     layer_type = int(latin_hypercube_sample[0] * 9)  # 9 tipos de capas
     layer_mapping = ['Conv2D', 'SelfAttention', 'BatchNorm', 'MaxPooling', 
                      'Dropout', 'Dense', 'Flatten', 'DontCare', 'Repetition']
-
     layer_type_name = layer_mapping[layer_type]
 
     if layer_type_name == 'Conv2D':
@@ -802,9 +809,9 @@ def map_to_architecture_params(latin_hypercube_sample):
     return {}
 
 # Ejecutar validación y guardado en CSV
-#if validate_latin_hypercube(num_models=5000):
-    #save_encoded_models_to_csv(num_models=5000, filename="EncodedChromosomes_V3.csv")
-
+""" if validate_latin_hypercube(num_models=1000):
+    save_encoded_models_to_csv(num_models=1000, filename="EncodedChromosomes_v4.csv")
+ """
 
 # %%
 
@@ -905,11 +912,11 @@ def create_balanced_subset(directory, dataset_csv, window_size, output_file):
             total_samples = waveform.shape[1]
 
             if total_samples < min_samples:
-                # ⚠️ Omitir audios demasiado cortos
+                # OMITIENDO: Audios demasiado cortos
                 print(f"⚠️ OMITIENDO: {file_name} - Duración insuficiente ({total_samples/sr:.2f} s)")
                 continue  # Pasar al siguiente archivo
 
-            # ✅ Fragmentar en segmentos de `window_size` segundos
+            # Fragmentar en segmentos de `window_size` segundos
             num_windows = total_samples // min_samples
             for i in range(num_windows):
                 start = i * min_samples
@@ -947,7 +954,7 @@ class Config:
         self.sample_rate = sample_rate
         self.checkpoint_file = checkpoint_file
 
-# 📌 Dataset personalizado para cargar audios en tiempo de ejecución
+# Dataset personalizado para cargar audios en tiempo de ejecución
 class AudioDataset(Dataset):
     def __init__(self, directory, dataset_csv, window_size):
         self.directory = directory
@@ -967,7 +974,7 @@ class AudioDataset(Dataset):
                 participant_id = int(file_name.split("_")[0].split('.')[0])
                 if participant_id not in labels:
                     continue
-
+                
                 label = labels[participant_id]
                 file_path = os.path.join(self.directory, file_name)
                 waveform, sample_rate = torchaudio.load(file_path)
@@ -979,7 +986,7 @@ class AudioDataset(Dataset):
                     print(f"⚠️ OMITIENDO: {file_name} - Duración insuficiente ({total_samples/sample_rate:.2f} s)")
                     continue
 
-                num_windows = total_samples // min_samples  # 🔹 Dividir en segmentos de `window_size`
+                num_windows = total_samples // min_samples  # Dividir en segmentos de `window_size`
                 for i in range(num_windows):
                     start = i * min_samples
                     end = start + min_samples
@@ -996,7 +1003,7 @@ class AudioDataset(Dataset):
         spectrogram = self._generate_spectrogram(waveform)
         return spectrogram, label
     
-    def _dgenerate_spectrogram(self, waveform):
+    def _generate_spectrogram(self, waveform):
         """Convierte audio en espectrograma Mel y lo normaliza."""
         n_mels = 64
         sample_rate = 16000  # Aseguramos que sea consistente
@@ -1061,7 +1068,7 @@ class AudioDataset(Dataset):
 
 
     
-# 📌 Mostrar los dos primeros espectrogramas generados
+# Mostrar los dos primeros espectrogramas generados
 def show_first_two_spectrograms(dataset):
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
     for i in range(2):
@@ -1108,7 +1115,7 @@ def load_checkpoint(file_path):
 
 
 
-# 📌 Función para guardar resultados en CSV
+# Función para guardar resultados en CSV
 def save_results_to_csv(file_path, architecture, results):
     """
     Guarda los resultados de la arquitectura en un archivo CSV.
@@ -1120,13 +1127,13 @@ def save_results_to_csv(file_path, architecture, results):
     """
     columns = ["Encoded Architecture", "Loss", "Accuracy", "Precision", "Recall", "F1", "Specificity"]
 
-    # 📌 Si el archivo no existe, crear con encabezados
+    # Si el archivo no existe, crear con encabezados
     if not os.path.exists(file_path):
         with open(file_path, mode='w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(columns)
 
-    # 📌 Escribir los resultados
+    # Escribir los resultados
     with open(file_path, mode='a', newline='') as f:
         writer = csv.writer(f)
         writer.writerow([str(architecture)] + results)  # Guardar arquitectura y métricas
@@ -1145,16 +1152,16 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
     print("📌 Cargando y procesando audios en tiempo de ejecución...")
     dataset = AudioDataset(directory, dataset_csv, config.window_size)
     print(f"📌 Total de muestras cargadas: {len(dataset)}")
-    dataset = [d for d in dataset if d is not None]  # ⚠️ Filtrar valores `None`
+    dataset = [d for d in dataset if d is not None]  # Filtrar valores `None`
 
     print(f"📌 Total de muestras antes del balanceo: {len(dataset)}")
 
-    # 🔹 Balanceo de clases: cortar al tamaño de la clase minoritaria
+    # Balanceo de clases: cortar al tamaño de la clase minoritaria
     spectrograms, labels = zip(*dataset)  # Extraer espectrogramas y etiquetas
     spectrograms = torch.stack(spectrograms)  # Convertir a tensor
     labels = torch.tensor(labels)
 
-    # 🔹 Contar muestras por clase
+    # Contar muestras por clase
     num_class_0 = (labels == 0).sum().item()
     num_class_1 = (labels == 1).sum().item()
     min_class_count = min(num_class_0, num_class_1)  # Tamaño de la clase minoritaria
@@ -1164,7 +1171,7 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
     print(f"   🔹 Clase 1 (Depresión): {num_class_1}")
     print(f"   📌 Ajustando ambas clases a {min_class_count} muestras.")
 
-    # 🔹 Seleccionar aleatoriamente la misma cantidad de muestras de cada clase
+    # Seleccionar aleatoriamente la misma cantidad de muestras de cada clase
     idx_class_0 = torch.where(labels == 0)[0][:min_class_count]
     idx_class_1 = torch.where(labels == 1)[0][:min_class_count]
     balanced_indices = torch.cat((idx_class_0, idx_class_1))
@@ -1174,7 +1181,7 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
 
     print(f"📌 Total de muestras después del balanceo: {spectrograms.shape[0]}")
 
-    # 🔹 Dividir en train/val/test con random_state=42 para reproducibilidad
+    # Dividir en train/val/test con random_state=42 para reproducibilidad
     print("📌 Dividiendo datos en conjuntos de entrenamiento, validación y prueba...")
     X_train, X_test, Y_train, Y_test = train_test_split(spectrograms, labels, test_size=0.2, stratify=labels, random_state=42)
     X_train, X_val, Y_train, Y_val = train_test_split(X_train, Y_train, test_size=0.2, stratify=Y_train, random_state=42)
@@ -1184,7 +1191,7 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
     print(f"   🔹 Validation: {X_val.shape[0]}")
     print(f"   🔹 Test: {X_test.shape[0]}")
 
-    # 🔹 Crear DataLoaders sin shuffle (manteniendo el orden para checkpoints)
+    # Crear DataLoaders sin shuffle (manteniendo el orden para checkpoints)
     print("📌 Creando DataLoaders...")
     train_loader = DataLoader(TensorDataset(X_train, Y_train), batch_size=batch_size,
                                 num_workers=0, pin_memory=True, shuffle=True)
@@ -1197,9 +1204,9 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
     print("📌 Mostrando dos espectrogramas de ejemplo...")
     show_first_two_spectrograms(dataset)
 
-    # 🔹 Obtener `input_shape` automáticamente del primer batch
+    # Obtener `input_shape` automáticamente del primer batch
     example_batch, _ = next(iter(train_loader))
-    example_batch = example_batch.unsqueeze(1)  # 🔹 Añadir dimensión de canal
+    example_batch = example_batch.unsqueeze(1)  # Añadir dimensión de canal
     input_shape = example_batch.shape[1:]  # Extraer shape sin batch_size
     print(f"📌 Input shape corregido automáticamente: {input_shape}")
 
@@ -1214,7 +1221,7 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
 
         print(f"\n🚀 Evaluando arquitectura {i + 1}/{len(architectures)}...")
 
-        # 📌 Construcción del modelo
+        # Construcción del modelo
         model = BuildPyTorchModel(architecture, input_shape=input_shape, verbose=verbose)
         
        
@@ -1224,13 +1231,13 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
         torch.cuda.empty_cache()
         torch.cuda.memory_allocated()
 
-        # 📌 Entrenar y evaluar modelo
+        # Entrenar y evaluar modelo
         results = train_and_evaluate_model(model, train_loader, val_loader, test_loader, config)
 
-        # 📌 Guardar resultados en CSV
+        # Guardar resultados en CSV
         save_results_to_csv(save_file, architecture, results)
 
-        # 📌 Guardar checkpoint
+        # Guardar checkpoint
         print(f"📌 Arquitectura {i+1} evaluada con éxito. Guardando checkpoint...")
         save_checkpoint(config.checkpoint_file, i)
     print("✅ Entrenamiento completado con éxito.")
@@ -1238,21 +1245,22 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
 
 
 
-# 📌 Función para calcular F1-score, precisión, recall y especificidad
+# Función para calcular F1-score, precisión, recall y especificidad
 def calculate_metrics(y_true, y_pred):
     precision = precision_score(y_true, y_pred, zero_division=0)
     recall = recall_score(y_true, y_pred, zero_division=0)
     f1 = f1_score(y_true, y_pred, zero_division=0)
 
-    # 📌 Calcular la especificidad
+    # Calcular la especificidad
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
     specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
 
     return precision, recall, f1, specificity
 
 
-# 📌 Entrenar y evaluar modelo
+# Entrenar y evaluar modelo
 def train_and_evaluate_model(model, train_loader, val_loader, test_loader, config):
+    print("Cuda available: ", torch.cuda.is_available())
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"📌 Entrenando en: {device}")
     
@@ -1303,7 +1311,7 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
 
 
 
-# 📌 Calcular métricas
+# Calcular métricas
 def calculate_f1_score(y_true, y_pred):
     precision = precision_score(y_true, y_pred, zero_division=1)
     recall = recall_score(y_true, y_pred, zero_division=1)
@@ -1316,7 +1324,7 @@ def calculate_f1_score(y_true, y_pred):
 
     return precision, recall, f1
 
-# 📌 Cargar arquitecturas desde CSV
+# Cargar arquitecturas desde CSV
 def load_architectures_from_csv(csv_path):
     df = pd.read_csv(csv_path)
     architectures = df['Encoded Chromosome'].apply(lambda x: [int(i) for i in x.strip("[]").split(",")])
