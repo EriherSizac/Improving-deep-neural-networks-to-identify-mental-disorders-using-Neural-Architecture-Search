@@ -505,18 +505,46 @@ def sus_selection(fitness, num_selections):
     Returns:
         List[int]: Índices de los individuos seleccionados.
     """
+    # Asegurarse de que fitness sea un array de numpy
+    fitness = np.array(fitness)
+    
+    # Verificar si hay valores NaN o infinitos
+    if np.any(np.isnan(fitness)) or np.any(np.isinf(fitness)):
+        # Si hay valores problemáticos, usar selección aleatoria
+        return np.random.choice(len(fitness), num_selections, replace=False)
+    
+    # Manejar casos donde fitness tiene valores negativos o ceros
+    # Para SUS necesitamos valores positivos
+    min_fitness = np.min(fitness)
+    if min_fitness <= 0:
+        # Desplazar todos los valores para que sean positivos
+        # Usar un método más seguro para evitar problemas con NaN
+        fitness = np.maximum(fitness - min_fitness + 1e-6, 1e-6)
+    
     total_fitness = np.sum(fitness)
+    if total_fitness <= 0 or np.isnan(total_fitness) or np.isinf(total_fitness):
+        # Si la suma es cero, negativa o inválida, usar selección aleatoria
+        return np.random.choice(len(fitness), num_selections, replace=False)
+    
     pointer_distance = total_fitness / num_selections
     start_point = np.random.uniform(0, pointer_distance)
     pointers = [start_point + i * pointer_distance for i in range(num_selections)]
+    
+    # Calcular suma acumulativa de manera segura
     cum_sum = np.cumsum(fitness)
+    
     selected_indices = []
-    i = 0
+    
     for pointer in pointers:
+        i = 0
         # Avanzar en la suma acumulativa hasta que el puntero sea menor o igual
         while i < len(cum_sum) and pointer > cum_sum[i]:
             i += 1
-        selected_indices.append(i if i < len(fitness) else len(fitness) - 1)
+        # Asegurarse de que el índice esté dentro del rango
+        if i >= len(fitness):
+            i = len(fitness) - 1
+        selected_indices.append(i)
+    
     return selected_indices
 
 def unified_search(surrogate_model, population_size=10, generations=100, n_experiments=1, 
@@ -718,6 +746,16 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
             
             # Mutation and crossover
             for i in range(len(population)):
+                # Obtener los valores de fitness actuales para la selección
+                # Asegurarse de que todos los individuos tengan un valor de fitness
+                fitness_values = []
+                for ind in population:
+                    if 'fitness' not in ind or ind['fitness'] is None:
+                        # Si no tiene fitness, asignar un valor por defecto muy bajo
+                        ind['fitness'] = -float('inf')
+                    fitness_values.append(ind['fitness'])
+                fitness_values = np.array(fitness_values)
+                
                 # Select random indices for mutation
                 if selection_method == 'tournament':
                     # Selección por torneo para elegir los individuos para la mutación
@@ -758,6 +796,15 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
                     a, b, c = population[a_idx]['individual'], population[b_idx]['individual'], population[c_idx]['individual']
                 elif selection_method == 'sus':
                     # Stochastic Universal Sampling
+                    # Asegurarse de que fitness_values esté definido y todos los individuos tengan fitness
+                    if 'fitness_values' not in locals() or fitness_values is None:
+                        fitness_values = []
+                        for ind in population:
+                            if 'fitness' not in ind or ind['fitness'] is None:
+                                ind['fitness'] = -float('inf')
+                            fitness_values.append(ind['fitness'])
+                        fitness_values = np.array(fitness_values)
+                    
                     selected_indices = sus_selection(fitness_values, 3)
                     a_idx, b_idx, c_idx = selected_indices
                     a, b, c = population[a_idx]['individual'], population[b_idx]['individual'], population[c_idx]['individual']
@@ -790,10 +837,20 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
                     parent = population[parent_idx]['individual']
                 elif selection_method == 'sus':
                     # Stochastic Universal Sampling para seleccionar padre
+                    # Asegurarse de que fitness_values esté definido y todos los individuos tengan fitness
+                    if 'fitness_values' not in locals() or fitness_values is None:
+                        fitness_values = []
+                        for ind in population:
+                            if 'fitness' not in ind or ind['fitness'] is None:
+                                ind['fitness'] = -float('inf')
+                            fitness_values.append(ind['fitness'])
+                        fitness_values = np.array(fitness_values)
+                    
                     selected_indices = sus_selection(fitness_values, 1)
                     parent_idx = selected_indices[0]
                     parent = population[parent_idx]['individual']
                 else:
+                    # En el caso de selección aleatoria clásica, el padre es el individuo actual
                     parent = population[i]['individual']
                 
                 trial = crossover(convert_individual(mutant_fixed, to_real=True), 
@@ -861,6 +918,15 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
                         }
                 elif selection_method == 'sus':
                     # Stochastic Universal Sampling para seleccionar individuos
+                    # Asegurarse de que fitness_values esté definido y todos los individuos tengan fitness
+                    if 'fitness_values' not in locals() or fitness_values is None:
+                        fitness_values = []
+                        for ind in population:
+                            if 'fitness' not in ind or ind['fitness'] is None:
+                                ind['fitness'] = -float('inf')
+                            fitness_values.append(ind['fitness'])
+                        fitness_values = np.array(fitness_values)
+                    
                     selected_indices = sus_selection(fitness_values, 1)
                     competitor_idx = selected_indices[0]
                     

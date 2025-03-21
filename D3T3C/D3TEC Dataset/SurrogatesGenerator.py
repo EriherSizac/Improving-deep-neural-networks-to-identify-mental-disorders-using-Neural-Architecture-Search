@@ -24,7 +24,7 @@ import torch.multiprocessing as mp
 import torchaudio.transforms as T
 from torch.cuda.amp import autocast, GradScaler
 import torch.utils.checkpoint as checkpoint
-torch.cuda.memory_summary()
+#torch.cuda.memory_summary()
 
 
     
@@ -1322,8 +1322,8 @@ def load_architectures_from_csv(csv_path):
     architectures = df['Encoded Chromosome'].apply(lambda x: [int(i) for i in x.strip("[]").split(",")])
     return architectures.tolist()
 
-train_models("EncodedChromosomes_V3.csv", "Dataset.csv", "./SM-27",
-             save_file="EncodedChromosomes_V3_results.csv", verbose=False, batch_size=400, epochs=15)
+train_models("EncodedChromosomes_V4.csv", "Dataset.csv", "./SM-27",
+             save_file="EncodedChromosomes_V4_results.csv", verbose=False, batch_size=400, epochs=50)
 
 
 # %%
