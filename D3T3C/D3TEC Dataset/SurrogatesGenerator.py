@@ -1333,7 +1333,7 @@ def load_architectures_from_csv(csv_path):
     return architectures.tolist()
 
 train_models("EncodedChromosomes_v4.csv", "Dataset.csv", "./SM-27",
-             save_file="EncodedChromosomes_v4_results.csv", verbose=False, batch_size=100, epochs=50)
+             save_file="EncodedChromosomes_V4_results.csv", verbose=False, batch_size=800, epochs=50)
 
 
 # %%
