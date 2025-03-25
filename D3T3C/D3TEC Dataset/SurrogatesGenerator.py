@@ -16,15 +16,17 @@ import pandas as pd
 import torchaudio
 import torch.optim as optim
 import matplotlib.pyplot as plt
+import json
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 from torch.utils.data import TensorDataset, DataLoader,Dataset
-import json
 import torch.multiprocessing as mp
 import torchaudio.transforms as T
 from torch.cuda.amp import autocast, GradScaler
 import torch.utils.checkpoint as checkpoint
-torch.cuda.memory_summary()
+import random
+from traceback import print_exc
+#torch.cuda.memory_summary()
 print("Is CUDA available?: ", torch.cuda.is_available())
 
 
@@ -33,7 +35,7 @@ print("Is CUDA available?: ", torch.cuda.is_available())
     # Optimización de cuDNN
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.deterministic = False
-#torch.set_num_threads(1)  # Prueba con 4, 2 o 1
+#torch.set_num_threads(4)  # Prueba con 4, 2 o 1
 #torch.set_num_interop_threads(1)
 
 #import torch.multiprocessing as mp
@@ -137,10 +139,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 import torch
 import torch.nn as nn
@@ -573,15 +571,15 @@ def select_group_for_repetition(layers, repetition_layers):
     return valid_layers
 
 class BuildPyTorchModel(nn.Module):
-    def __init__(self, model_dict, input_shape=(1, 64, 552), verbose=False):
+    def __init__(self, model_dict, input_shape=(1, 128, 128), verbose=False):
         """
         Construye un modelo de PyTorch a partir de un diccionario de arquitectura.
         """
         super(BuildPyTorchModel, self).__init__()
         self.verbose = verbose
+        self.input_shape = input_shape
         model_dict = decode_model_architecture(model_dict)
-        print(model_dict)
-
+        
         target_in_channels = 4  # Número mínimo de canales requeridos en la arquitectura
         layers = []
         if input_shape[0] != target_in_channels:
@@ -642,28 +640,22 @@ class BuildPyTorchModel(nn.Module):
         return x
 
     def forward(self, x):
-        # Check if input is flattened (2D) and reshape it to 4D if needed
-        if x.dim() == 2:
-            # Assuming the flattened tensor is from a 128x128 image with 1 channel
-            # Reshape to [batch_size, 1, 128, 128]
-            batch_size = x.size(0)
-            x = x.view(batch_size, 1, 256, 256)
-            print(f"⚠️ Reshaping flattened input from 2D to 4D: {x.shape}")
-        
-        if self.initial_conv is not None:
+        """
+        Propagación hacia adelante en el modelo.
+        """
+        # Aplicar capa de conversión inicial si es necesaria
+        if hasattr(self, 'initial_conv'):
             x = self.initial_conv(x)
         for i, module in enumerate(self.feature_extractor):
             # Ajuste dinámico de BatchNorm (según si la entrada es 2D o 4D)
             if isinstance(module, nn.BatchNorm2d):
                 if x.dim() == 2:  # (batch, features)
                     num_features = x.shape[1]
-                    print(f"⚠️ Reemplazando BatchNorm2d por BatchNorm1d para entrada con forma {x.shape}")
                     self.feature_extractor[i] = nn.BatchNorm1d(num_features).to(x.device)
                     module = self.feature_extractor[i]
                 else:
                     num_channels = x.shape[1]
                     if module.num_features != num_channels:
-                        print(f"⚠️ Ajustando BatchNorm2d: esperaba {module.num_features} canales, pero recibió {num_channels}")
                         self.feature_extractor[i] = nn.BatchNorm2d(num_channels).to(x.device)
                         module = self.feature_extractor[i]
             x = module(x)
@@ -811,9 +803,8 @@ def map_to_architecture_params(latin_hypercube_sample):
     return {}
 
 # Ejecutar validación y guardado en CSV
-""" if validate_latin_hypercube(num_models=1000):
-    save_encoded_models_to_csv(num_models=1000, filename="EncodedChromosomes_v4.csv")
- """
+if validate_latin_hypercube(num_models=1000):
+    save_encoded_models_to_csv(num_models=1000, filename="EncodedChromosomes_v5.csv")
 
 # %%
 
@@ -838,9 +829,22 @@ def load_audio_and_split(file_path, segment_duration=2.0):
 
     return audio_segments, sample_rate
 
-def generate_mel_spectrogram(audio_segment, sample_rate, n_mels=128, n_fft=2048, hop_length=512):
+def generate_mel_spectrogram(audio_segment, sample_rate, n_mels=128, n_fft=2048, hop_length=512, normalize=False, scaler=None):
     """
     Genera un espectrograma de Mel a partir de un fragmento de audio.
+    
+    Args:
+        audio_segment: Segmento de audio (tensor de PyTorch)
+        sample_rate: Tasa de muestreo del audio
+        n_mels: Número de bandas de Mel
+        n_fft: Tamaño de la ventana FFT
+        hop_length: Tamaño del salto entre ventanas
+        normalize: Si es True, normaliza el espectrograma
+        scaler: Diccionario con parámetros de normalización {'min': valor_min, 'max': valor_max}
+               Si es None y normalize=True, se normaliza usando los min/max del espectrograma actual
+        
+    Returns:
+        Espectrograma de Mel (opcionalmente normalizado)
     """
     mel_transform = T.MelSpectrogram(
         sample_rate=sample_rate,
@@ -853,31 +857,21 @@ def generate_mel_spectrogram(audio_segment, sample_rate, n_mels=128, n_fft=2048,
     # Convertir a escala logarítmica (dB)
     mel_spec = torchaudio.functional.amplitude_to_DB(mel_spec, multiplier=10.0, amin=1e-10, db_multiplier=0.0)
     
+    # Normalizar el espectrograma si se solicita
+    if normalize:
+        if scaler is not None:
+            # Normalizar usando parámetros globales
+            mel_spec_min = scaler['min']
+            mel_spec_max = scaler['max']
+        else:
+            # Normalizar usando parámetros locales del espectrograma actual
+            mel_spec_min = torch.min(mel_spec)
+            mel_spec_max = torch.max(mel_spec)
+            
+        if mel_spec_max > mel_spec_min:  # Evitar división por cero
+            mel_spec = (mel_spec - mel_spec_min) / (mel_spec_max - mel_spec_min)
+    
     return mel_spec
-
-def plot_spectrograms(audio_segments, sample_rate, n_mels=128):
-    """
-    Genera y muestra los espectrogramas de todos los fragmentos de audio.
-    """
-    num_segments = len(audio_segments)
-    fig, axes = plt.subplots(num_segments, 1, figsize=(10, 3 * num_segments))
-
-    if num_segments == 1:
-        axes = [axes]  # Asegurar que siempre sea iterable
-
-    for i, segment in enumerate(audio_segments):
-        mel_spec = generate_mel_spectrogram(segment, sample_rate, n_mels=n_mels)
-        mel_spec_np = mel_spec.squeeze(0).numpy()  # Remove the first dimension
-
-        ax = axes[i]
-        img = ax.imshow(mel_spec_np, origin="lower", aspect="auto", cmap="magma")
-        ax.set_title(f"Segment {i+1} Spectrogram ({mel_spec_np.shape[0]}x{mel_spec_np.shape[1]})")
-        ax.set_xlabel("Time")
-        ax.set_ylabel("Frequency")
-
-    plt.colorbar(img, ax=axes[-1], orientation='vertical', fraction=0.02)
-    plt.tight_layout()
-    plt.show()
 
 # Ruta del archivo de audio
 file_path = "./SM-27/001_10.wav"  # Cambia esto por el archivo que estás usando
@@ -886,7 +880,7 @@ file_path = "./SM-27/001_10.wav"  # Cambia esto por el archivo que estás usando
 audio_segments, sample_rate = load_audio_and_split(file_path, segment_duration=2.0)
 
 # Mostrar los espectrogramas de todos los segmentos
-plot_spectrograms(audio_segments, sample_rate, n_mels=128)
+#plot_spectrograms(audio_segments, sample_rate, n_mels=128)
 
 
 # %%
@@ -955,14 +949,43 @@ class Config:
         self.window_size = window_size
         self.sample_rate = sample_rate
         self.checkpoint_file = checkpoint_file
-
+ 
 # Dataset personalizado para cargar audios en tiempo de ejecución
 class AudioDataset(Dataset):
-    def __init__(self, directory, dataset_csv, window_size):
+    def __init__(self, directory, dataset_csv, window_size, scaler_file=None):
+        """
+        Dataset para cargar y procesar archivos de audio.
+        
+        Args:
+            directory: Directorio que contiene los archivos de audio
+            dataset_csv: Ruta al archivo CSV con información de los archivos
+            window_size: Tamaño de la ventana en segundos
+            scaler_file: Ruta opcional al archivo de parámetros de normalización
+        """
         self.directory = directory
         self.window_size = window_size
         self.audio_segments = self._load_audio_segments(dataset_csv)
-
+        self.scaler = None  # Para almacenar parámetros de normalización global
+        
+        # Si se proporciona un archivo de scaler, cargarlo
+        if scaler_file and os.path.exists(scaler_file):
+            try:
+                self.scaler = self.load_normalization_params(scaler_file)
+                print(f"✅ Parámetros de normalización cargados desde: {scaler_file}")
+                print(f"   Min: {self.scaler['min']:.4f}, Max: {self.scaler['max']:.4f}")
+            except Exception as e:
+                print(f"⚠️ Error al cargar parámetros de normalización: {e}")
+                self.scaler = None
+        
+        # Si no se cargó un scaler, calcular y guardar uno nuevo
+        if self.scaler is None:
+            print("🔍 No se proporcionó un archivo de scaler o no se pudo cargar. Calculando nuevos parámetros...")
+            # Calcular parámetros de normalización global
+            self._calculate_global_normalization()
+            
+            # Guardar parámetros de normalización
+            self._save_normalization_params()
+    
     def _load_audio_segments(self, dataset_csv):
         """Carga los nombres de los archivos y sus etiquetas desde el CSV, dividiendo en segmentos de `window_size` segundos."""
         df = pd.read_csv(dataset_csv, usecols=['Participant_ID', 'PHQ-9 Score'])
@@ -981,21 +1004,97 @@ class AudioDataset(Dataset):
                 file_path = os.path.join(self.directory, file_name)
                 waveform, sample_rate = torchaudio.load(file_path)
 
+                # Definir el tamaño mínimo de muestras requerido para un fragmento de `window_size` segundos
                 min_samples = self.window_size * sample_rate
                 total_samples = waveform.shape[1]
 
                 if total_samples < min_samples:
+                    # OMITIENDO: Audios demasiado cortos
                     print(f"⚠️ OMITIENDO: {file_name} - Duración insuficiente ({total_samples/sample_rate:.2f} s)")
                     continue
 
-                num_windows = total_samples // min_samples  # Dividir en segmentos de `window_size`
+                # Fragmentar en segmentos de `window_size`
+                num_windows = total_samples // min_samples
                 for i in range(num_windows):
                     start = i * min_samples
-                    end = start + min_samples
+                    end = (i + 1) * min_samples
                     segment = waveform[:, start:end]
                     audio_segments.append((segment, label))
 
         return audio_segments
+
+    def _calculate_global_normalization(self):
+        """Calcula los parámetros de normalización global para todo el dataset."""
+        if not self.audio_segments:
+            print("⚠️ No hay segmentos de audio para calcular la normalización global")
+            return
+            
+        print("🧮 Calculando parámetros de normalización global...")
+        
+        # Primero, generamos espectrogramas sin normalizar para todos los segmentos
+        all_specs = []
+        for waveform, _ in self.audio_segments:
+            # Generar espectrograma sin normalizar
+            n_mels = 64
+            sample_rate = 16000
+            n_fft = int(sample_rate * 0.029)
+            hop_length = int(sample_rate * 0.010)
+            win_length = int(sample_rate * 0.025)
+            
+            spec = torchaudio.transforms.MelSpectrogram(
+                sample_rate=sample_rate,
+                n_fft=n_fft,
+                n_mels=n_mels,
+                hop_length=hop_length,
+                win_length=win_length
+            )(waveform)
+            
+            spec = torchaudio.transforms.AmplitudeToDB()(spec)
+            all_specs.append(spec)
+        
+        # Concatenar todos los espectrogramas para calcular min/max global
+        if all_specs:
+            # Usar reshape(-1) en lugar de view(-1) para manejar tensores no contiguos
+            all_specs_tensor = torch.cat([spec.reshape(-1) for spec in all_specs])
+            global_min = torch.min(all_specs_tensor).item()
+            global_max = torch.max(all_specs_tensor).item()
+            
+            self.scaler = {
+                'min': global_min,
+                'max': global_max
+            }
+            
+            print(f"📊 Parámetros de normalización global: min={global_min:.4f}, max={global_max:.4f}")
+        else:
+            print("⚠️ No se pudieron generar espectrogramas para la normalización global")
+    
+    def _save_normalization_params(self):
+        """Guarda los parámetros de normalización en un archivo."""
+        if self.scaler:
+            normalization_file = os.path.join(os.path.dirname(self.directory), 'normalization_params.json')
+            with open(normalization_file, 'w') as f:
+                json.dump(self.scaler, f)
+            print(f"💾 Parámetros de normalización guardados en: {normalization_file}")
+    
+    @staticmethod
+    def load_normalization_params(file_path):
+        """Carga parámetros de normalización desde un archivo."""
+        try:
+            with open(file_path, 'r') as f:
+                scaler = json.load(f)
+            
+            # Verificar que el scaler tenga el formato correcto
+            if 'min' not in scaler or 'max' not in scaler:
+                print(f"⚠️ El archivo de normalización {file_path} no tiene el formato correcto.")
+                print(f"   Contenido: {scaler}")
+                return None
+                
+            print(f"✅ Scaler cargado correctamente desde {file_path}")
+            print(f"   Min: {scaler['min']}, Max: {scaler['max']}")
+            return scaler
+        except Exception as e:
+            print(f"⚠️ Error al cargar parámetros de normalización desde {file_path}: {e}")
+            return None
 
     def __len__(self):
         return len(self.audio_segments)
@@ -1003,6 +1102,9 @@ class AudioDataset(Dataset):
     def __getitem__(self, idx):
         waveform, label = self.audio_segments[idx]
         spectrogram = self._generate_spectrogram(waveform)
+        spectrogram = spectrogram.permute(1, 2, 0)  
+        spectrogram = spectrogram[:, :, 0:1]  
+        spectrogram = spectrogram.permute(2, 0, 1)  
         return spectrogram, label
     
     def _generate_spectrogram(self, waveform):
@@ -1012,7 +1114,9 @@ class AudioDataset(Dataset):
         n_fft = int(sample_rate * 0.029)
         hop_length = int(sample_rate * 0.010)
         win_length = int(sample_rate * 0.025)
+        normalize = True  # Activar normalización
 
+        # Primero generamos el espectrograma base
         spec = torchaudio.transforms.MelSpectrogram(
             sample_rate=sample_rate,
             n_fft=n_fft,
@@ -1021,14 +1125,25 @@ class AudioDataset(Dataset):
             win_length=win_length
         )(waveform)
 
+        # Convertimos a escala dB
         spec = torchaudio.transforms.AmplitudeToDB()(spec)
-        spec = (spec - spec.min()) / (spec.max() - spec.min())
+        
+        # Aplicamos la normalización global usando nuestra función personalizada
+        spec = generate_mel_spectrogram(
+            audio_segment=spec,  # Ya es un espectrograma, no un waveform
+            sample_rate=sample_rate,
+            n_mels=n_mels,
+            n_fft=n_fft,
+            hop_length=hop_length,
+            normalize=normalize,
+            scaler=self.scaler
+        )
         
         # Se elimina el squeeze para ver la forma original
         # return torch.tensor(spec.squeeze(0), dtype=torch.float32)
         tensor_spec = torch.tensor(spec, dtype=torch.float32)
-        print(f"📌 Espectrograma generado - Shape: {tensor_spec.shape}")
         return tensor_spec
+    
     import torch.nn.functional as F
 
     def _generate_spectrogram(self, waveform):
@@ -1038,7 +1153,9 @@ class AudioDataset(Dataset):
         n_fft = int(sample_rate * 0.029)
         hop_length = int(sample_rate * 0.010)
         win_length = int(sample_rate * 0.025)
+        normalize = True  # Activar normalización
 
+        # Primero generamos el espectrograma base
         spec = torchaudio.transforms.MelSpectrogram(
             sample_rate=sample_rate,
             n_fft=n_fft,
@@ -1047,8 +1164,19 @@ class AudioDataset(Dataset):
             win_length=win_length
         )(waveform)
 
+        # Convertimos a escala dB
         spec = torchaudio.transforms.AmplitudeToDB()(spec)
-        spec = (spec - spec.min()) / (spec.max() - spec.min())
+        
+        # Aplicamos la normalización global usando nuestra función personalizada
+        spec = generate_mel_spectrogram(
+            audio_segment=spec,  # Ya es un espectrograma, no un waveform
+            sample_rate=sample_rate,
+            n_mels=n_mels,
+            n_fft=n_fft,
+            hop_length=hop_length,
+            normalize=normalize,
+            scaler=self.scaler
+        )
         
         # Evita el warning clonando y detach:
         tensor_spec = spec.clone().detach().float()  # Esperamos forma: (C, 64, tiempo)
@@ -1063,7 +1191,6 @@ class AudioDataset(Dataset):
         # Si se desea, quitar la dimensión de batch:
         tensor_spec = tensor_spec.squeeze(0)  # Resultado final: (C, 128, 128)
         
-        print(f"📌 Espectrograma generado - Shape: {tensor_spec.shape}")
         return tensor_spec
 
 
@@ -1082,7 +1209,7 @@ def show_first_two_spectrograms(dataset):
             spec_to_plot = spec
         axes[i].imshow(spec_to_plot.numpy(), origin="lower", aspect="auto", cmap="magma")
         axes[i].set_title(f"Espectrograma {i+1} - Label: {label}")
-    plt.show()
+    plt.show()  
 
 
 
@@ -1143,106 +1270,6 @@ def save_results_to_csv(file_path, architecture, results):
     print(f"📊 Resultados guardados en {file_path}")
 
 
-
-def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batch_size= 1, save_file="results.csv",
-                 verbose=False):
-    print("📌 Iniciando entrenamiento de modelos...")
-
-    config = Config(epochs=epochs, window_size=2)
-    checkpoint = load_checkpoint(config.checkpoint_file)
-
-    print("📌 Cargando y procesando audios en tiempo de ejecución...")
-    dataset = AudioDataset(directory, dataset_csv, config.window_size)
-    print(f"📌 Total de muestras cargadas: {len(dataset)}")
-    dataset = [d for d in dataset if d is not None]  # Filtrar valores `None`
-
-    print(f"📌 Total de muestras antes del balanceo: {len(dataset)}")
-
-    # Balanceo de clases: cortar al tamaño de la clase minoritaria
-    spectrograms, labels = zip(*dataset)  # Extraer espectrogramas y etiquetas
-    spectrograms = torch.stack(spectrograms)  # Convertir a tensor
-    labels = torch.tensor(labels)
-
-    # Contar muestras por clase
-    num_class_0 = (labels == 0).sum().item()
-    num_class_1 = (labels == 1).sum().item()
-    min_class_count = min(num_class_0, num_class_1)  # Tamaño de la clase minoritaria
-
-    print(f"📊 Cantidad de muestras por clase antes del balanceo:")
-    print(f"   🔹 Clase 0 (No Depresión): {num_class_0}")
-    print(f"   🔹 Clase 1 (Depresión): {num_class_1}")
-    print(f"   📌 Ajustando ambas clases a {min_class_count} muestras.")
-
-    # Seleccionar aleatoriamente la misma cantidad de muestras de cada clase
-    idx_class_0 = torch.where(labels == 0)[0][:min_class_count]
-    idx_class_1 = torch.where(labels == 1)[0][:min_class_count]
-    balanced_indices = torch.cat((idx_class_0, idx_class_1))
-
-    spectrograms = spectrograms[balanced_indices]
-    labels = labels[balanced_indices]
-
-    print(f"📌 Total de muestras después del balanceo: {spectrograms.shape[0]}")
-
-    # Dividir en train/val/test con random_state=42 para reproducibilidad
-    print("📌 Dividiendo datos en conjuntos de entrenamiento, validación y prueba...")
-    X_train, X_test, Y_train, Y_test = train_test_split(spectrograms, labels, test_size=0.2, stratify=labels, random_state=42)
-    X_train, X_val, Y_train, Y_val = train_test_split(X_train, Y_train, test_size=0.2, stratify=Y_train, random_state=42)
-
-    print(f"📊 Tamaño de los conjuntos después del balanceo:")
-    print(f"   🔹 Train: {X_train.shape[0]}")
-    print(f"   🔹 Validation: {X_val.shape[0]}")
-    print(f"   🔹 Test: {X_test.shape[0]}")
-
-    # Crear DataLoaders sin shuffle (manteniendo el orden para checkpoints)
-    print("📌 Creando DataLoaders...")
-    train_loader = DataLoader(TensorDataset(X_train, Y_train), batch_size=batch_size,
-                                num_workers=0, pin_memory=True, shuffle=True)
-    val_loader = DataLoader(TensorDataset(X_val, Y_val), batch_size=batch_size,
-                            num_workers=0, pin_memory=True)
-    test_loader = DataLoader(TensorDataset(X_test, Y_test), batch_size=batch_size,
-                            num_workers=0, pin_memory=True)
-
-
-    print("📌 Mostrando dos espectrogramas de ejemplo...")
-    show_first_two_spectrograms(dataset)
-
-    # Obtener `input_shape` automáticamente del primer batch
-    example_batch, _ = next(iter(train_loader))
-    example_batch = example_batch.unsqueeze(1)  # Añadir dimensión de canal
-    input_shape = example_batch.shape[1:]  # Extraer shape sin batch_size
-    print(f"📌 Input shape corregido automáticamente: {input_shape}")
-
-
-    architectures = load_architectures_from_csv(csv_path_architectures)
-    print(f"📌 Total de arquitecturas a evaluar: {len(architectures)}")
-
-    for i, architecture in enumerate(architectures):
-        if i <= checkpoint["last_completed"]:
-            print(f"⏭️ Saltando arquitectura {i+1}/{len(architectures)} (ya entrenada)...")
-            continue  # Saltar arquitecturas ya completadas
-
-        print(f"\n🚀 Evaluando arquitectura {i + 1}/{len(architectures)}...")
-
-        # Construcción del modelo
-        model = BuildPyTorchModel(architecture, input_shape=input_shape, verbose=verbose)
-        
-       
-        #model.to(dtype=torch.float32)  # Forzar que use float32 en vez de bfloat16
-
-        print("📌 Modelo construido. Iniciando entrenamiento...")
-        torch.cuda.empty_cache()
-        torch.cuda.memory_allocated()
-
-        # Entrenar y evaluar modelo
-        results = train_and_evaluate_model(model, train_loader, val_loader, test_loader, config)
-
-        # Guardar resultados en CSV
-        save_results_to_csv(save_file, architecture, results)
-
-        # Guardar checkpoint
-        print(f"📌 Arquitectura {i+1} evaluada con éxito. Guardando checkpoint...")
-        save_checkpoint(config.checkpoint_file, i)
-    print("✅ Entrenamiento completado con éxito.")
 
 
 
@@ -1332,8 +1359,104 @@ def load_architectures_from_csv(csv_path):
     architectures = df['Encoded Chromosome'].apply(lambda x: [int(i) for i in x.strip("[]").split(",")])
     return architectures.tolist()
 
+
+
+def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batch_size=1, save_file="results.csv",
+                 verbose=False, scaler_file=None):
+    print("📌 Iniciando entrenamiento de modelos...")
+
+    config = Config(epochs=epochs, window_size=2)
+    checkpoint = load_checkpoint(config.checkpoint_file)
+
+    print("📌 Cargando y procesando audios en tiempo de ejecución...")
+    dataset = AudioDataset(directory, dataset_csv, config.window_size, scaler_file=scaler_file)
+    print(f"📌 Total de muestras cargadas: {len(dataset)}")
+    dataset = [d for d in dataset if d is not None]  # Filtrar valores `None`
+
+    print(f"📌 Total de muestras antes del balanceo: {len(dataset)}")
+
+    # Contar muestras por clase para el balanceo
+    class_counts = {0: 0, 1: 0}
+    for _, label in dataset:
+        class_counts[label] += 1
+    
+    min_class_count = min(class_counts.values())  # Tamaño de la clase minoritaria
+
+    print(f"📊 Cantidad de muestras por clase antes del balanceo:")
+    print(f"   🔹 Clase 0 (No Depresión): {class_counts[0]}")
+    print(f"   🔹 Clase 1 (Depresión): {class_counts[1]}")
+    print(f"   📌 Ajustando ambas clases a {min_class_count} muestras.")
+
+    # Separar índices por clase
+    class_indices = {0: [], 1: []}
+    for i, (_, label) in enumerate(dataset):
+        if len(class_indices[label]) < min_class_count:
+            class_indices[label].append(i)
+    
+    # Combinar índices balanceados
+    balanced_indices = class_indices[0] + class_indices[1]
+    random.shuffle(balanced_indices)  # Mezclar índices
+    
+    # Crear un nuevo dataset balanceado
+    balanced_dataset = [dataset[i] for i in balanced_indices]
+    print(f"📌 Total de muestras después del balanceo: {len(balanced_dataset)}")
+
+    # Dividir en train/val/test con random_state=42 para reproducibilidad
+    print("📌 Dividiendo datos en conjuntos de entrenamiento, validación y prueba...")
+    
+    # Separar espectrogramas y etiquetas
+    train_data, test_data = train_test_split(balanced_dataset, test_size=0.2, random_state=42, 
+                                            stratify=[d[1] for d in balanced_dataset])
+    train_data, val_data = train_test_split(train_data, test_size=0.2, random_state=42,
+                                           stratify=[d[1] for d in train_data])
+
+    print(f"📊 Tamaño de los conjuntos después del balanceo:")
+    print(f"   🔹 Train: {len(train_data)}")
+    print(f"   🔹 Validation: {len(val_data)}")
+    print(f"   🔹 Test: {len(test_data)}")
+
+    # Crear DataLoaders
+    print("📌 Creando DataLoaders...")
+    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_data, batch_size=batch_size)
+    test_loader = DataLoader(test_data, batch_size=batch_size)
+
+    # Cargar arquitecturas desde CSV
+    print("📌 Cargando arquitecturas desde CSV...")
+    architectures = load_architectures_from_csv(csv_path_architectures)
+    
+    # Iniciar desde el último checkpoint
+    start_idx = checkpoint.get('architecture_index', -1) + 1
+    if start_idx > 0:
+        print(f"📌 Continuando desde el checkpoint: arquitectura #{start_idx}")
+    
+    # Entrenar cada arquitectura
+    for i, architecture in enumerate(architectures[start_idx:], start=start_idx):
+        print(f"\n🔹 Entrenando arquitectura #{i+1}/{len(architectures)}")
+        
+        try:
+            # Construir modelo
+            model = BuildPyTorchModel(architecture, input_shape=(1, 128, 128), verbose=verbose)
+            
+            # Entrenar y evaluar
+            results = train_and_evaluate_model(model, train_loader, val_loader, test_loader, config)
+            
+            # Guardar resultados
+            save_results_to_csv(save_file, architecture, results)
+            
+            # Actualizar checkpoint
+            save_checkpoint(config.checkpoint_file, i)
+            
+            print(f"✅ Arquitectura #{i+1} entrenada y evaluada con éxito.")
+            print(f"📊 Resultados: Loss={results[0]:.4f}, Accuracy={results[1]:.4f}, F1={results[4]:.4f}")
+        
+        except Exception as e:
+            print(f"❌ Error al entrenar la arquitectura #{i+1}: {str(e)}")
+            print_exc()
+            continue
+    
+    print("✅ Entrenamiento completado con éxito.")
+
 train_models("EncodedChromosomes_v4.csv", "Dataset.csv", "./SM-27",
-             save_file="EncodedChromosomes_V4_results.csv", verbose=False, batch_size=400, epochs=50)
-
-
-# %%
+             save_file="EncodedChromosomes_V5_results.csv", verbose=False, batch_size=400, epochs=100, 
+             scaler_file=os.path.join(os.path.dirname("./SM-27"), "normalization_params.json"))
