@@ -205,7 +205,7 @@ class SelfAttention(nn.Module):
         out_window = out_window.permute(0, 1, 3, 2).contiguous()
 
         # Validación antes de `view()`
-        expected_elements_out = B * C * num_windows_h * ws * num_windows_w * ws
+        expected_elements_out = B * self.filters * num_windows_h * ws * num_windows_w * ws
         actual_elements_out = out_window.numel()
 
         if expected_elements_out != actual_elements_out:
