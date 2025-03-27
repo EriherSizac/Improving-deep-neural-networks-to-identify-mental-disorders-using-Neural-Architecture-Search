@@ -691,7 +691,7 @@ def generate_latin_hypercube_samples(num_samples, dimensions):
 
 # Validar si los parámetros generados están dentro del rango esperado
 def validate_latin_hypercube(num_models=100):
-    dimensions = 12 * 3  # 12 capas, 3 parámetros por capa
+    dimensions = 12 * 4  # 12 capas, 3 parámetros por capa
     latin_samples = generate_latin_hypercube_samples(num_models, dimensions)
     
     # Validar cada muestra generada
@@ -737,7 +737,7 @@ def validate_latin_hypercube(num_models=100):
 
 # Guardar el encoding generado en un archivo CSV
 def save_encoded_models_to_csv(num_models, filename, max_alleles=48):
-    latin_samples = generate_latin_hypercube_samples(num_models, 12 * 3)  # 12 capas, 3 parámetros por capa
+    latin_samples = generate_latin_hypercube_samples(num_models, 12 * 4)  # 12 capas, 3 parámetros por capa
 
     with open(filename, mode='w', newline='') as file:
         writer = csv.writer(file)
@@ -763,32 +763,40 @@ def map_to_architecture_params(latin_hypercube_sample):
     layer_mapping = ['Conv2D', 'SelfAttention', 'BatchNorm', 'MaxPooling', 
                      'Dropout', 'Dense', 'Flatten', 'DontCare', 'Repetition']
     layer_type_name = layer_mapping[layer_type]
+    
+    param1 = latin_hypercube_sample[1]
+    param2 = latin_hypercube_sample[2]
+    param3 = latin_hypercube_sample[3]
 
     if layer_type_name == 'Conv2D':
         return {
             "type": "Conv2D",
-            "filters": int(latin_hypercube_sample[1] * (32 - 4) + 4),  # [4, 32]
-            "strides": 1 if latin_hypercube_sample[2] < 0.5 else 2,
-            "activation": "relu"
+            "filters": int(param1 * (32 - 4) + 4),  # [4, 32]
+            "strides": 1 if param2 < 0.5 else 2,
+            "activation": "relu" if param3 < 0.33 else ("leaky_relu" if param3 < 0.66 else "tanh")
         }
-    elif layer_type_name == 'SelfAttention':  # Reemplazo de DepthwiseConv2D
+    elif layer_type_name == 'SelfAttention':
         return {
             "type": "SelfAttention",
-            "filters": int(latin_hypercube_sample[1] * (64 - 4) + 4),  # [4, 64]
-            "attention_heads": int(latin_hypercube_sample[2] * (8 - 1) + 1),  # [1, 8]
-            "activation": "relu"
+            "filters": int(param1 * (64 - 4) + 4),  # [4, 64]
+            "attention_heads": int(param2 * (8 - 1) + 1),  # [1, 8]
+            "activation": "relu" if param3 < 0.33 else ("leaky_relu" if param3 < 0.66 else "tanh")
         }
     elif layer_type_name == 'BatchNorm':
-        return {"type": "BatchNorm"}
+        # Para BatchNorm podemos usar param1 para determinar si aplicar momentum personalizado
+        momentum = 0.1 + param1 * 0.8 if param3 > 0.5 else 0.1
+        return {"type": "BatchNorm", "momentum": momentum}
     elif layer_type_name == 'MaxPooling':
-        return {"type": "MaxPooling", "strides": 1 if latin_hypercube_sample[1] < 0.5 else 2}
+        # Podemos usar param3 para determinar el tamaño del kernel
+        kernel_size = 2 if param3 < 0.5 else 3
+        return {"type": "MaxPooling", "strides": 1 if param2 < 0.5 else 2, "kernel_size": kernel_size}
     elif layer_type_name == 'Dropout':
-        return {"type": "Dropout", "rate": latin_hypercube_sample[1] * (0.5 - 0.2) + 0.2}
+        return {"type": "Dropout", "rate": param1 * (0.5 - 0.2) + 0.2}
     elif layer_type_name == 'Dense':
         return {
             "type": "Dense",
-            "units": int(latin_hypercube_sample[1] * (512 - 1) + 1),
-            "activation": "relu"
+            "units": int(param1 * (512 - 1) + 1),
+            "activation": "relu" if param3 < 0.33 else ("leaky_relu" if param3 < 0.66 else "tanh")
         }
     elif layer_type_name == 'Flatten':
         return {"type": "Flatten"}
@@ -797,8 +805,8 @@ def map_to_architecture_params(latin_hypercube_sample):
     elif layer_type_name == 'Repetition':
         return {
             "type": "Repetition",
-            "repetition_layers": int(latin_hypercube_sample[1] * 3 + 1),
-            "repetition_count": int(latin_hypercube_sample[2] * 2 + 1)
+            "repetition_layers": int(param1 * 3 + 1),  # [1, 4]
+            "repetition_count": int(param2 * 2 + 1)    # [1, 3]
         }
     return {}
 
@@ -840,8 +848,8 @@ def generate_mel_spectrogram(audio_segment, sample_rate, n_mels=128, n_fft=2048,
         n_fft: Tamaño de la ventana FFT
         hop_length: Tamaño del salto entre ventanas
         normalize: Si es True, normaliza el espectrograma
-        scaler: Diccionario con parámetros de normalización {'min': valor_min, 'max': valor_max}
-               Si es None y normalize=True, se normaliza usando los min/max del espectrograma actual
+        scaler: Diccionario con parámetros de normalización {'mean': valor_media, 'std': valor_std}
+               Si es None y normalize=True, se normaliza usando la media/std del espectrograma actual
         
     Returns:
         Espectrograma de Mel (opcionalmente normalizado)
@@ -860,16 +868,16 @@ def generate_mel_spectrogram(audio_segment, sample_rate, n_mels=128, n_fft=2048,
     # Normalizar el espectrograma si se solicita
     if normalize:
         if scaler is not None:
-            # Normalizar usando parámetros globales
-            mel_spec_min = scaler['min']
-            mel_spec_max = scaler['max']
+            # Normalización Z-score usando parámetros globales
+            mel_spec_mean = scaler['mean']
+            mel_spec_std = scaler['std']
         else:
-            # Normalizar usando parámetros locales del espectrograma actual
-            mel_spec_min = torch.min(mel_spec)
-            mel_spec_max = torch.max(mel_spec)
+            # Normalización Z-score usando parámetros locales del espectrograma actual
+            mel_spec_mean = torch.mean(mel_spec)
+            mel_spec_std = torch.std(mel_spec)
             
-        if mel_spec_max > mel_spec_min:  # Evitar división por cero
-            mel_spec = (mel_spec - mel_spec_min) / (mel_spec_max - mel_spec_min)
+        if mel_spec_std > 1e-10:  # Evitar división por cero
+            mel_spec = (mel_spec - mel_spec_mean) / mel_spec_std
     
     return mel_spec
 
@@ -972,7 +980,7 @@ class AudioDataset(Dataset):
             try:
                 self.scaler = self.load_normalization_params(scaler_file)
                 print(f"✅ Parámetros de normalización cargados desde: {scaler_file}")
-                print(f"   Min: {self.scaler['min']:.4f}, Max: {self.scaler['max']:.4f}")
+                print(f"   Mean: {self.scaler['mean']:.4f}, Std: {self.scaler['std']:.4f}")
             except Exception as e:
                 print(f"⚠️ Error al cargar parámetros de normalización: {e}")
                 self.scaler = None
@@ -1052,19 +1060,19 @@ class AudioDataset(Dataset):
             spec = torchaudio.transforms.AmplitudeToDB()(spec)
             all_specs.append(spec)
         
-        # Concatenar todos los espectrogramas para calcular min/max global
+        # Concatenar todos los espectrogramas para calcular media/std global
         if all_specs:
             # Usar reshape(-1) en lugar de view(-1) para manejar tensores no contiguos
             all_specs_tensor = torch.cat([spec.reshape(-1) for spec in all_specs])
-            global_min = torch.min(all_specs_tensor).item()
-            global_max = torch.max(all_specs_tensor).item()
+            global_mean = torch.mean(all_specs_tensor).item()
+            global_std = torch.std(all_specs_tensor).item()
             
             self.scaler = {
-                'min': global_min,
-                'max': global_max
+                'mean': global_mean,
+                'std': global_std
             }
             
-            print(f"📊 Parámetros de normalización global: min={global_min:.4f}, max={global_max:.4f}")
+            print(f"📊 Parámetros de normalización global: mean={global_mean:.4f}, std={global_std:.4f}")
         else:
             print("⚠️ No se pudieron generar espectrogramas para la normalización global")
     
@@ -1084,13 +1092,27 @@ class AudioDataset(Dataset):
                 scaler = json.load(f)
             
             # Verificar que el scaler tenga el formato correcto
-            if 'min' not in scaler or 'max' not in scaler:
-                print(f"⚠️ El archivo de normalización {file_path} no tiene el formato correcto.")
-                print(f"   Contenido: {scaler}")
-                return None
+            if 'mean' not in scaler or 'std' not in scaler:
+                # Intenta convertir de min-max a z-score si es un formato antiguo
+                if 'min' in scaler and 'max' in scaler:
+                    print(f"⚠️ Convirtiendo formato antiguo min-max a z-score...")
+                    # Valores por defecto aproximados para la conversión
+                    # Estos valores son aproximados y deberían recalcularse idealmente
+                    mean_approx = (scaler['min'] + scaler['max']) / 2
+                    std_approx = (scaler['max'] - scaler['min']) / 6  # Aproximación basada en la regla de 3-sigma
+                    
+                    scaler = {
+                        'mean': mean_approx,
+                        'std': std_approx
+                    }
+                    print(f"   Convertido a: mean={mean_approx:.4f}, std={std_approx:.4f}")
+                else:
+                    print(f"⚠️ El archivo de normalización {file_path} no tiene el formato correcto.")
+                    print(f"   Contenido: {scaler}")
+                    return None
                 
             print(f"✅ Scaler cargado correctamente desde {file_path}")
-            print(f"   Min: {scaler['min']}, Max: {scaler['max']}")
+            print(f"   Mean: {scaler['mean']}, Std: {scaler['std']}")
             return scaler
         except Exception as e:
             print(f"⚠️ Error al cargar parámetros de normalización desde {file_path}: {e}")
@@ -1457,6 +1479,6 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
     
     print("✅ Entrenamiento completado con éxito.")
 
-train_models("EncodedChromosomes_v4.csv", "Dataset.csv", "./SM-27",
-             save_file="EncodedChromosomes_V5_results.csv", verbose=False, batch_size=400, epochs=100, 
+train_models("EncodedChromosomes_V5.csv", "Dataset.csv", "./SM-27",
+             save_file="EncodedChromosomes_V5_results.csv", verbose=False, batch_size=400, epochs=50, 
              scaler_file=os.path.join(os.path.dirname("./SM-27"), "normalization_params.json"))
