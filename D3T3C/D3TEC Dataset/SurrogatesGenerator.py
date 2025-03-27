@@ -696,7 +696,7 @@ def validate_latin_hypercube(num_models=100):
     
     # Validar cada muestra generada
     for sample_idx, sample in enumerate(latin_samples):
-        reshaped_sample = sample.reshape(12, 3)  # Cada modelo tiene 12 capas
+        reshaped_sample = sample.reshape(12, 4)  # Cada modelo tiene 12 capas
         
         for layer_idx, layer_params in enumerate(reshaped_sample):
             type_idx = int(layer_params[0] * 9)  # 9 tipos de capas
