@@ -1480,5 +1480,5 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
     print("✅ Entrenamiento completado con éxito.")
 
 train_models("EncodedChromosomes_v5.csv", "Dataset.csv", "./SM-27",
-             save_file="EncodedChromosomes_v5_results.csv", verbose=False, batch_size=800, epochs=15 , 
+             save_file="EncodedChromosomes_v5_results.csv", verbose=False, batch_size=450, epochs=15 , 
              scaler_file=os.path.join(os.path.dirname("./SM-27"), "normalization_params.json"))
