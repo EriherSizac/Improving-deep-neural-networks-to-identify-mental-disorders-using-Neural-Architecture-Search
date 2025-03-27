@@ -744,7 +744,7 @@ def save_encoded_models_to_csv(num_models, filename, max_alleles=48):
         writer.writerow(["Model", "Encoded Chromosome"])
 
         for model_idx in range(num_models):
-            model_samples = latin_samples[model_idx].reshape(12, 3)
+            model_samples = latin_samples[model_idx].reshape(12,4)
 
             model_dict = {
                 "layers": [
