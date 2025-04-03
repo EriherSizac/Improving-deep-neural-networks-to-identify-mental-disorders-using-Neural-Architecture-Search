@@ -1,4 +1,7 @@
 # Encoding and decoding utilities for neural architecture search
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 def int_to_real_dom(num, domain):
     """Convert an integer value to a real value in [0,1] based on the given domain.
@@ -472,7 +475,7 @@ def decode_model_architecture(encoded_model):
     Decodifica la arquitectura del modelo a partir de la lista codificada de valores (índices),
     aplicando las reglas de repetición y asegurando la inclusión de una capa convolucional inicial.
     """
-    model_dict = {'layers': []}  # Lista de capas decodificadas
+    model_dict = {'layers': [{'type': 'Conv2D', 'filters': 32, 'strides': 1, 'activation': 'relu'}]} 
     index = 0
     found_self_attention = False  # Flag para asegurar una sola SelfAttention
 
@@ -590,3 +593,146 @@ def select_group_for_repetition(layers, repetition_layers):
                 valid_layers.insert(0, layer)
 
     return valid_layers
+
+class BuildPyTorchModel(nn.Module):
+    def __init__(self, model_dict, input_shape=(1, 128, 128), verbose=False):
+        """
+        Construye un modelo de PyTorch a partir de un diccionario de arquitectura.
+        """
+        super(BuildPyTorchModel, self).__init__()
+        self.verbose = verbose
+        self.input_shape = input_shape
+        model_dict = decode_model_architecture(model_dict)
+        
+        target_in_channels = 4  # Número mínimo de canales requeridos en la arquitectura
+        layers = []
+        if input_shape[0] != target_in_channels:
+            if self.verbose:
+                print(f"📌 Insertando capa de conversión: de {input_shape[0]} canal(es) a {target_in_channels} canales.")
+            self.initial_conv = nn.Conv2d(in_channels=input_shape[0],
+                                          out_channels=target_in_channels,
+                                          kernel_size=1)
+            in_channels = target_in_channels
+        else:
+            self.initial_conv = None
+            in_channels = input_shape[0]
+
+        self.linear_layers = []
+
+        for layer in model_dict['layers']:
+            if layer['type'] == 'Conv2D':
+                layers.append(nn.Conv2d(in_channels=in_channels,
+                                        out_channels=layer['filters'],
+                                        kernel_size=3,
+                                        stride=layer['strides'],
+                                        padding=1))
+                layers.append(nn.ReLU() if layer['activation'] == "relu" else nn.LeakyReLU())
+                in_channels = layer['filters']
+            elif layer['type'] == 'SelfAttention':
+                # Antes de la atención local, se verifica que los canales coincidan
+                desired_filters = layer['filters']
+                if in_channels != desired_filters:
+                    if self.verbose:
+                        print(f"Ajustando canales de entrada: {in_channels} -> {desired_filters}")
+                    layers.append(nn.Conv2d(in_channels, desired_filters, kernel_size=1))
+                    in_channels = desired_filters
+                # Se agrega la capa de atención local
+                layers.append(SelfAttention(filters=desired_filters,
+                                                 window_size=16,  # Ajusta según la resolución (por ejemplo, 16 para 128x128)
+                                                 attention_heads=layer['attention_heads'],
+                                                 activation=layer['activation'],
+                                                 verbose=self.verbose))
+                in_channels = desired_filters
+            elif layer['type'] == 'BatchNorm':
+                layers.append(nn.BatchNorm2d(in_channels))
+            elif layer['type'] == 'MaxPooling':
+                layers.append(nn.MaxPool2d(kernel_size=2, stride=layer['strides'], padding=1))
+            elif layer['type'] == 'Flatten':
+                layers.append(nn.Flatten())
+            elif layer['type'] == 'Dense':
+                self.linear_layers.append((layer['units'], layer['activation']))
+            elif layer['type'] == 'Dropout':
+                layers.append(nn.Dropout(p=layer['rate']))
+            elif layer['type'] == 'DontCare':
+                layers.append(DontCareLayer())
+
+        self.feature_extractor = nn.Sequential(*layers)
+
+    def forward_features(self, x):
+        for module in self.feature_extractor:
+            x = module(x)
+        return x
+
+    def forward(self, x):
+        """
+        Propagación hacia adelante en el modelo.
+        """
+        # Aplicar capa de conversión inicial si es necesaria
+        if hasattr(self, 'initial_conv'):
+            x = self.initial_conv(x)
+        for i, module in enumerate(self.feature_extractor):
+            # Ajuste dinámico de BatchNorm (según si la entrada es 2D o 4D)
+            if isinstance(module, nn.BatchNorm2d):
+                if x.dim() == 2:  # (batch, features)
+                    num_features = x.shape[1]
+                    self.feature_extractor[i] = nn.BatchNorm1d(num_features).to(x.device)
+                    module = self.feature_extractor[i]
+                else:
+                    num_channels = x.shape[1]
+                    if module.num_features != num_channels:
+                        self.feature_extractor[i] = nn.BatchNorm2d(num_channels).to(x.device)
+                        module = self.feature_extractor[i]
+            x = module(x)
+        # Construcción dinámica de las capas densas
+        if not hasattr(self, "fully_connected"):
+            in_features = x.shape[1]
+            fc_layers = []
+            for units, activation in self.linear_layers:
+                fc_layers.append(nn.Linear(in_features, units))
+                fc_layers.append(nn.ReLU() if activation == "relu" else nn.LeakyReLU())
+                in_features = units
+            self.fully_connected = nn.Sequential(*fc_layers).to(x.device)
+        x = self.fully_connected(x)
+        return x
+
+
+class SelfAttention(nn.Module):
+    """
+    Implementación de capa de auto-atención para redes neuronales convolucionales.
+    """
+    def __init__(self, in_channels):
+        super(SelfAttention, self).__init__()
+        self.query = nn.Conv2d(in_channels, in_channels // 8, kernel_size=1)
+        self.key = nn.Conv2d(in_channels, in_channels // 8, kernel_size=1)
+        self.value = nn.Conv2d(in_channels, in_channels, kernel_size=1)
+        self.gamma = nn.Parameter(torch.zeros(1))
+        
+    def forward(self, x):
+        batch_size, channels, height, width = x.size()
+        
+        # Proyecciones para query, key, value
+        proj_query = self.query(x).view(batch_size, -1, height * width).permute(0, 2, 1)
+        proj_key = self.key(x).view(batch_size, -1, height * width)
+        
+        # Calcular matriz de atención
+        energy = torch.bmm(proj_query, proj_key)
+        attention = F.softmax(energy, dim=-1)
+        
+        # Calcular salida
+        proj_value = self.value(x).view(batch_size, -1, height * width)
+        out = torch.bmm(proj_value, attention.permute(0, 2, 1))
+        out = out.view(batch_size, channels, height, width)
+        
+        # Aplicar residual connection con peso gamma
+        out = self.gamma * out + x
+        return out
+
+class DontCareLayer(nn.Module):
+    """
+    Capa que no hace nada, utilizada para representar espacios vacíos en la arquitectura.
+    """
+    def __init__(self):
+        super(DontCareLayer, self).__init__()
+        
+    def forward(self, x):
+        return x

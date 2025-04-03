@@ -9,12 +9,10 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, TensorDataset
 from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
-
-# Importar la clase BuildPyTorchModel desde el módulo principal
-import sys
-sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
-from TrainFinalModels import BuildPyTorchModel
+from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix   
+# En ES_TRAIN/trainer.py
+# Cambiar la importación a:
+from .utils.encoding import BuildPyTorchModel
 
 class Config:
     def __init__(self, epochs=20, window_size=5, sample_rate=None, checkpoint_file="./checkpoint.json"):
@@ -200,6 +198,7 @@ def train_models(architectures, dataset_csv, directory, epochs=20, batch_size=1,
 
     config = Config(epochs=epochs, window_size=2, checkpoint_file="final_checkpoint.json")
     checkpoint = load_checkpoint(config.checkpoint_file)
+    print(f"📌 Total de arquitecturas: {len(architectures)}")
 
     print("📌 Cargando y procesando audios en tiempo de ejecución...")
     dataset = AudioDataset(directory, dataset_csv, config.window_size)
@@ -247,13 +246,13 @@ def train_models(architectures, dataset_csv, directory, epochs=20, batch_size=1,
 
         print(f"\n🚀 Evaluando arquitectura {i + 1}/{len(architectures)} con 10-Fold Cross-Validation...")
 
-        model = BuildPyTorchModel(architecture, input_shape=(1, 128, 128), verbose=verbose)
+        model = BuildPyTorchModel(architecture)
         fold_results = []  # Lista para almacenar resultados de cada fold
 
         for fold, (train_idx, val_idx) in enumerate(kfold.split(X_np, y_np)):
             print(f"\n📌 Fold {fold+1}/10 - Entrenando modelo...")
 
-            fold_model = BuildPyTorchModel(architecture, input_shape=(1, 128, 128), verbose=verbose)
+            fold_model = BuildPyTorchModel(architecture)
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             fold_model = fold_model.to(device)
 
@@ -296,6 +295,8 @@ def train_models(architectures, dataset_csv, directory, epochs=20, batch_size=1,
             precision, recall, f1, specificity = calculate_metrics(y_true, y_pred)
             fold_result = [running_loss / len(train_loader), accuracy, precision, recall, f1, specificity]
             fold_results.append(fold_result)
+            print(f"Fold {fold+1} - Accuracy: {accuracy:.4f}, F1: {f1:.4f}")    
+
 
         # Al finalizar todos los folds, imprimir los resultados individuales
         print("\n📌 Resultados individuales por fold:")

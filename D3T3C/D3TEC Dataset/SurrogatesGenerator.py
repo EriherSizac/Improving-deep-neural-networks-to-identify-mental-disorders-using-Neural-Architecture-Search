@@ -450,7 +450,7 @@ def decode_model_architecture(encoded_model):
     Decodifica la arquitectura del modelo a partir de la lista codificada de valores (índices),
     aplicando las reglas de repetición y asegurando la inclusión de una capa convolucional inicial.
     """
-    model_dict = {'layers': []}  # Lista de capas decodificadas
+    model_dict = {'layers': [{'type': 'Conv2D', 'filters': 32, 'strides': 1, 'activation': 'relu'}]} 
     index = 0
     found_self_attention = False  # Flag para asegurar una sola SelfAttention
 
@@ -1480,5 +1480,5 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
     print("✅ Entrenamiento completado con éxito.")
 
 train_models("EncodedChromosomes_v5.csv", "Dataset.csv", "./SM-27",
-             save_file="EncodedChromosomes_v5_results.csv", verbose=False, batch_size=850, epochs=100 , 
+             save_file="EncodedChromosomes_v5_results.csv", verbose=False, batch_size=2000, epochs=100 , 
              scaler_file=os.path.join(os.path.dirname("./SM-27"), "normalization_params.json"))

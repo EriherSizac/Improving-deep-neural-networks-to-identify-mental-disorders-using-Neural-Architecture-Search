@@ -2,9 +2,7 @@
 # Cada modelo está representado como una lista de parámetros codificados
 
 models_to_train = [
-
-
-   8,
+    [ 8,
       0,
       8,
       0,
@@ -51,8 +49,7 @@ models_to_train = [
       4,
       1,
       0,
-      0
-  
+      0]
 ]
 
 # Puedes agregar más modelos a la lista models_to_train si deseas entrenar múltiples arquitecturas

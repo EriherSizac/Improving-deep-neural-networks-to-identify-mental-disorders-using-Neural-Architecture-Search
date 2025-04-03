@@ -451,7 +451,7 @@ def decode_model_architecture(encoded_model):
     Decodifica la arquitectura del modelo a partir de la lista codificada de valores (índices),
     aplicando las reglas de repetición y asegurando la inclusión de una capa convolucional inicial.
     """
-    model_dict = {'layers': []}  # Lista de capas decodificadas
+    model_dict = {'layers': [{'type': 'Conv2D', 'filters': 32, 'strides': 1, 'activation': 'relu'}]} 
     index = 0
     found_self_attention = False  # Flag para asegurar una sola SelfAttention
 
