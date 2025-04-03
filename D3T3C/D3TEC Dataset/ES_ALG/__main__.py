@@ -42,7 +42,6 @@ def setup_argparse():
     parser.add_argument("--auto-adapt", action="store_true", help="Habilitar auto-adaptación del factor F")
     parser.add_argument("--checkpoint-dir", type=str, default="./checkpoints", help="Directorio para guardar checkpoints")
     parser.add_argument("--output", type=str, default="best_model.json", help="Archivo de salida para el mejor modelo")
-    parser.add_argument("--tournament", action="store_true", help="Usar selección por torneo (obsoleto, usar --selection-method)")
     parser.add_argument("--selection-method", choices=["random", "tournament", "sus"], default="random",
                        help="Método de selección: random (clásico DE), tournament o sus (Stochastic Universal Sampling)")
     parser.add_argument("--new-run", action="store_true", help="Iniciar una nueva búsqueda, ignorando checkpoints existentes")
@@ -69,14 +68,13 @@ def main():
     print(f"- Directorio de checkpoints: {checkpoint_dir}")
     print(f"- Auto-adaptación: {args.auto_adapt}")
     print(f"- Nuevo inicio: {args.new_run}")
-    print(f"- Selección por torneo: {args.tournament}")
     print(f"- Método de selección: {args.selection_method}")
     
     # Cargar el modelo surrogate
     print("\nCargando modelo surrogate...")
     surrogate_model = load_surrogate_model(surrogate_model_path)
     
-    if not surrogate_model:
+    if surrogate_model is None:
         print(f"Error: No se pudo cargar el modelo surrogate en {surrogate_model_path}.")
         sys.exit(1)
     
@@ -107,7 +105,7 @@ def main():
         cr_rate=args.cr,
         checkpoint_dir=checkpoint_dir,
         new_run=args.new_run,
-        selection_method=args.selection_method if not args.tournament else "tournament",
+        selection_method=args.selection_method,
         resume_from=resume_from
     )
     

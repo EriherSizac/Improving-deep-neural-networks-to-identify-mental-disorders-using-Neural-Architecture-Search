@@ -408,3 +408,95 @@ def fixArch(encoded_model, verbose=False):
     return fixed_layers[:48]
 
 
+
+def convert_individual(ind, to_real=True):
+    real_rep = []
+    N = max(layer_type_options.keys())  # Obtener el máximo índice de capa en el diccionario
+
+    for i in range(0, len(ind), 4):
+        layer_type_idx = ind[i]
+        domain_layer_type = [0, N]
+
+        if to_real:
+            real_rep.append(int_to_real_dom(layer_type_idx, domain_layer_type))
+            layer_type = layer_type_options.get(layer_type_idx, 'DontCare')
+        else:
+            real_rep.append(real_to_int_dom(layer_type_idx, domain_layer_type))
+            layer_type = layer_type_options.get(real_rep[i], 'DontCare')
+
+        # Decodificación basada en el tipo de capa
+        if layer_type == 'Conv2D':
+            if to_real:
+                real_rep.append(int_to_real_dom(ind[i + 1], [4, 32]))  # Filtros
+                real_rep.append(int_to_real_dom(ind[i + 2], [0, 1]))  # Stride
+                real_rep.append(int_to_real_dom(ind[i + 3], [0, 3]))  # Activación
+            else:
+                real_rep.append(real_to_int_dom(ind[i + 1], [4, 32]))
+                real_rep.append(real_to_int_dom(ind[i + 2], [0, 1]))
+                real_rep.append(real_to_int_dom(ind[i + 3], [0, 3]))
+
+        elif layer_type == 'SelfAttention':  # 🚀 Reemplazo de DepthwiseConv2D por SelfAttention
+            if to_real:
+                real_rep.append(int_to_real_dom(ind[i + 1], [4, 64]))  # Filtros
+                real_rep.append(int_to_real_dom(ind[i + 2], [1, 8]))  # Número de cabezas de atención
+                real_rep.append(int_to_real_dom(ind[i + 3], [0, 3]))  # Activación
+            else:
+                real_rep.append(real_to_int_dom(ind[i + 1], [4, 64]))
+                real_rep.append(real_to_int_dom(ind[i + 2], [1, 8]))
+                real_rep.append(real_to_int_dom(ind[i + 3], [0, 3]))
+
+        elif layer_type == 'BatchNorm':
+            real_rep.extend([0, 0, 0])
+
+        elif layer_type == 'MaxPooling':
+            if to_real:
+                real_rep.append(int_to_real_dom(ind[i + 1], [0, 1]))
+            else:
+                real_rep.append(real_to_int_dom(ind[i + 1], [0, 1]))
+            real_rep.extend([0, 0])
+
+        elif layer_type == 'Dropout':
+            if to_real:
+                real_rep.append(int_to_real_dom(ind[i + 1], [0, 3]))
+            else:
+                real_rep.append(real_to_int_dom(ind[i + 1], [0, 3]))
+            real_rep.extend([0, 0])
+
+        elif layer_type == 'Dense':
+            if to_real:
+                real_rep.append(int_to_real_dom(ind[i + 1], [1, 512]))  # Neuronas
+                real_rep.append(int_to_real_dom(ind[i + 2], [0, 3]))  # Activación
+            else:
+                real_rep.append(real_to_int_dom(ind[i + 1], [1, 512]))
+                real_rep.append(real_to_int_dom(ind[i + 2], [0, 3]))
+            real_rep.append(0)
+
+        elif layer_type == 'Flatten':
+            real_rep.extend([0, 0, 0])
+
+        elif layer_type == 'Repetition':
+            if to_real:
+                real_rep.append(int_to_real_dom(ind[i + 1], [1, 4]))  # Número de capas a repetir
+                real_rep.append(int_to_real_dom(ind[i + 2], [1, 32]))  # Cantidad de repeticiones
+            else:
+                real_rep.append(real_to_int_dom(ind[i + 1], [1, 4]))
+                real_rep.append(real_to_int_dom(ind[i + 2], [1, 32]))
+            real_rep.append(0)
+
+        elif layer_type == 'DontCare':
+            real_rep.extend([0, 0, 0])
+
+    return real_rep
+
+# %%
+def int_to_real_dom(num, domain):
+    min_i, max_i = domain
+    r = (num - min_i) / (max_i - min_i)
+    return r
+
+def real_to_int_dom(num, domain):
+    min_i, max_i = domain
+    value = min_i + num * (max_i - min_i)
+    if isinstance(min_i, int) and isinstance(max_i, int):
+        value = int(round(value))
+    return value

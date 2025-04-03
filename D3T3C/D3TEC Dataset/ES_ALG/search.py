@@ -243,83 +243,20 @@ def map_to_architecture_params(latin_hypercube_sample):
     return {"type": "DontCare"}
 
 def load_surrogate_model(model_path):
-    """
-    Carga el modelo surrogate para evaluación de arquitecturas.
-    
-    Args:
-        model_path: Ruta al archivo del modelo (.h5 para modelos Keras, .pkl para modelos scikit-learn)
-        
-    Returns:
-        Modelo cargado
-        
-    Raises:
-        ValueError: Si la extensión del archivo no es soportada
-    """
     ext = os.path.splitext(model_path)[1].lower()
-    
     if ext == '.h5':
         # Cargar modelo Keras
         import tensorflow as tf
         return tf.keras.models.load_model(model_path, compile=False)
     elif ext == '.pkl':
-        # Cargar modelo scikit-learn (como Random Forest)
-        import pickle
         import joblib
-        
-        print(f"Intentando cargar modelo scikit-learn desde {model_path}")
-        
-        # Verificar que el archivo existe
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"El archivo {model_path} no existe")
-        
-        # Verificar el tamaño del archivo
-        file_size = os.path.getsize(model_path)
-        print(f"Tamaño del archivo: {file_size} bytes")
-        
-        # Intentar cargar con pickle
-        try:
-            print("Intentando cargar con pickle...")
-            with open(model_path, 'rb') as f:
-                model = pickle.load(f)
-            print("Modelo cargado exitosamente con pickle")
-            return model
-        except Exception as e:
-            print(f"Error al cargar con pickle: {str(e)}")
-            
-            # Intentar cargar con joblib como alternativa
-            try:
-                print("Intentando cargar con joblib...")
-                model = joblib.load(model_path)
-                print("Modelo cargado exitosamente con joblib")
-                return model
-            except Exception as e2:
-                print(f"Error al cargar con joblib: {str(e2)}")
-                
-                # Si ambos métodos fallan, intentar con una versión específica de pickle
-                try:
-                    print("Intentando cargar con pickle protocolo 4...")
-                    with open(model_path, 'rb') as f:
-                        model = pickle.load(f, fix_imports=True, encoding='latin1')
-                    print("Modelo cargado exitosamente con pickle protocolo 4")
-                    return model
-                except Exception as e3:
-                    print(f"Error al cargar con pickle protocolo 4: {str(e3)}")
-                    
-                    # Si todo falla, proporcionar un mensaje de error detallado
-                    error_msg = f"""
-                    Error al cargar el modelo desde {model_path}
-                    Error con pickle: {str(e)}
-                    Error con joblib: {str(e2)}
-                    Error con pickle protocolo 4: {str(e3)}
-
-                    Por favor, asegúrese de que:
-                    1. El modelo fue guardado correctamente
-                    2. El modelo fue guardado con una versión compatible de scikit-learn
-                    3. El archivo no está corrupto
-"""
-                    raise RuntimeError(error_msg)
+        print(f"Intentando cargar modelo desde {model_path} con joblib...")
+        model = joblib.load(model_path)
+        print("Modelo cargado exitosamente.")
+        return model
     else:
-        raise ValueError(f"Extensión de modelo no soportada: {ext}. Use .h5 para modelos Keras o .pkl para modelos scikit-learn.")
+        raise ValueError("Extensión no soportada")
+
 
 def evaluate_architecture(ind, surrogate_model):
     """
@@ -344,6 +281,8 @@ def evaluate_architecture(ind, surrogate_model):
         # Es un modelo scikit-learn que no acepta verbose
         return surrogate_model.predict(reshaped_ind)[0]
 
+from sklearn.decomposition import PCA
+
 def evaluate_population(population, surrogate_model):
     """
     Evalúa una población completa utilizando el modelo surrogate.
@@ -358,13 +297,24 @@ def evaluate_population(population, surrogate_model):
     # Normalizar toda la población
     normalized_population = batch_normalize_individuals(population)
     
-    # Verificar si el modelo es de Keras o scikit-learn
-    if hasattr(surrogate_model, 'predict') and 'verbose' in inspect.signature(surrogate_model.predict).parameters:
-        # Es un modelo Keras que acepta verbose
-        fitness_values = surrogate_model.predict(normalized_population, verbose=0)
-    else:
-        # Es un modelo scikit-learn que no acepta verbose
-        fitness_values = surrogate_model.predict(normalized_population)
+    try:
+        # Aplicar PCA para reducir dimensionalidad
+        pca = PCA(n_components=12, random_state=42)
+        reduced_population = pca.fit_transform(normalized_population)
+        
+        # Verificar si el modelo tiene el método predict
+        if hasattr(surrogate_model, 'predict'):
+            # Es un modelo scikit-learn
+            fitness_values = surrogate_model.predict(reduced_population)
+        else:
+            # Es un modelo Keras
+            fitness_values = surrogate_model(reduced_population, training=False)
+    except Exception as e:
+        print(f"Error al evaluar la población: {str(e)}")
+        print("Verificando tipo del modelo:")
+        print(f"Tipo: {type(surrogate_model)}")
+        print(f"Atributos: {dir(surrogate_model)}")
+        raise
     
     return fitness_values
 
@@ -830,119 +780,52 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
                 # Fix architecture to ensure valid encoding
                 mutant_fixed = fixArch(mutant_int, verbose=False)
                 
-                # Perform crossover
-                if selection_method == 'tournament':
-                    # Seleccionar padres para cruce mediante torneo
-                    parent_idx = tournament_selection(population, fitness_values, tournament_size=3)
-                    parent = population[parent_idx]['individual']
-                elif selection_method == 'sus':
-                    # Stochastic Universal Sampling para seleccionar padre
-                    # Asegurarse de que fitness_values esté definido y todos los individuos tengan fitness
-                    if 'fitness_values' not in locals() or fitness_values is None:
-                        fitness_values = []
-                        for ind in population:
-                            if 'fitness' not in ind or ind['fitness'] is None:
-                                ind['fitness'] = -float('inf')
-                            fitness_values.append(ind['fitness'])
-                        fitness_values = np.array(fitness_values)
-                    
-                    selected_indices = sus_selection(fitness_values, 1)
-                    parent_idx = selected_indices[0]
-                    parent = population[parent_idx]['individual']
-                else:
-                    # En el caso de selección aleatoria clásica, el padre es el individuo actual
-                    parent = population[i]['individual']
-                
-                trial = crossover(convert_individual(mutant_fixed, to_real=True), 
-                                 convert_individual(parent, to_real=True), 
-                                 cr_rate)
-                
-                # Convert back to integer representation for evaluation
-                trial_int = convert_individual(trial, to_real=False)
-                
-                # Fix architecture again to ensure valid encoding after crossover
-                trial_fixed = fixArch(trial_int, verbose=False)
-                
-                # Add to trial population
-                trial_population.append(trial_fixed)
+                # Agregar el individuo mutado a la población de prueba
+                trial_population.append(mutant_fixed)
             
-            # Evaluate trial population
-            print("Evaluando población de prueba...")
-            trial_population_list = []
-            for i in range(population_size):
-                trial_population_list.append(trial_population[i])
+            # Evaluar toda la población de prueba de una vez
+            trial_fitness = evaluate_population(trial_population, surrogate_model)
             
-            # Usar la función evaluate_population para evaluar toda la población de una vez
-            trial_fitness = evaluate_population(trial_population_list, surrogate_model)
-            
-            # Auto-adaptation of F parameter based on successful mutations
-            if auto_adaptation and gen > 0:
-                # Contar mutaciones exitosas
-                succ_m = get_succ_m(trial_fitness, fitness_values)
-                succ_rate = succ_m / len(population)
-                
-                # Ajustar F según la tasa de éxito
-                if succ_rate < 0.2:  # Pocas mutaciones exitosas, reducir F
-                    F = max(0.1, F * 0.8)
-                    print(f"Pocas mutaciones exitosas ({succ_rate:.2f}). Reduciendo F a {F:.4f}")
-                elif succ_rate > 0.3:  # Muchas mutaciones exitosas, aumentar F
-                    F = min(1.0, F * 1.2)
-                    print(f"Muchas mutaciones exitosas ({succ_rate:.2f}). Aumentando F a {F:.4f}")
-                else:
-                    print(f"Tasa de mutaciones exitosas: {succ_rate:.2f}. Manteniendo F = {F:.4f}")
-            
-            # Guardar F para graficar
-            f_history_exp.append(F)
-            
-            # Selection
+            # Comparar y actualizar la población
             for i in range(len(population)):
                 if selection_method == 'tournament':
-                    # En modo torneo, seleccionamos individuos para competir
-                    # El individuo de prueba compite con un individuo seleccionado por torneo
-                    competitor_idx = tournament_selection(population, fitness_values, tournament_size=3)
+                    # Selección por torneo para encontrar competidor
+                    selected_indices = sus_selection(fitness_values, 1)
+                    parent_idx = selected_indices[0]
                     
                     # Verificar si el individuo de prueba es diferente al competidor
-                    trial_ind = trial_population[i]
-                    competitor_ind = population[competitor_idx]['individual']
+                    trial_ind = mutant_fixed
+                    competitor_ind = population[parent_idx]['individual']
                     
                     # Verificar si son significativamente diferentes
                     are_different = are_individuals_different(trial_ind, competitor_ind, threshold=0.1)
                     
                     # Solo reemplazar si el fitness es mejor Y son individuos diferentes
                     # o si el fitness es significativamente mejor (>5%)
-                    if (trial_fitness[i] > population[competitor_idx]['fitness'] and 
-                        (are_different or trial_fitness[i] > population[competitor_idx]['fitness'] * 1.05)):
-                        population[competitor_idx] = {
-                            'individual': trial_population[i],
+                    if (trial_fitness[i] > population[parent_idx]['fitness'] and 
+                        (are_different or trial_fitness[i] > population[parent_idx]['fitness'] * 1.05)):
+                        population[parent_idx] = {
+                            'individual': mutant_fixed,
                             'fitness': trial_fitness[i]
                         }
                 elif selection_method == 'sus':
-                    # Stochastic Universal Sampling para seleccionar individuos
-                    # Asegurarse de que fitness_values esté definido y todos los individuos tengan fitness
-                    if 'fitness_values' not in locals() or fitness_values is None:
-                        fitness_values = []
-                        for ind in population:
-                            if 'fitness' not in ind or ind['fitness'] is None:
-                                ind['fitness'] = -float('inf')
-                            fitness_values.append(ind['fitness'])
-                        fitness_values = np.array(fitness_values)
-                    
+                    # Selección SUS para encontrar competidor
                     selected_indices = sus_selection(fitness_values, 1)
-                    competitor_idx = selected_indices[0]
+                    parent_idx = selected_indices[0]
                     
                     # Verificar si el individuo de prueba es diferente al competidor
-                    trial_ind = trial_population[i]
-                    competitor_ind = population[competitor_idx]['individual']
+                    trial_ind = mutant_fixed
+                    competitor_ind = population[parent_idx]['individual']
                     
                     # Verificar si son significativamente diferentes
                     are_different = are_individuals_different(trial_ind, competitor_ind, threshold=0.1)
                     
                     # Solo reemplazar si el fitness es mejor Y son individuos diferentes
                     # o si el fitness es significativamente mejor (>5%)
-                    if (trial_fitness[i] > population[competitor_idx]['fitness'] and 
-                        (are_different or trial_fitness[i] > population[competitor_idx]['fitness'] * 1.05)):
-                        population[competitor_idx] = {
-                            'individual': trial_population[i],
+                    if (trial_fitness[i] > population[parent_idx]['fitness'] and 
+                        (are_different or trial_fitness[i] > population[parent_idx]['fitness'] * 1.05)):
+                        population[parent_idx] = {
+                            'individual': mutant_fixed,
                             'fitness': trial_fitness[i]
                         }
                 else:
@@ -950,7 +833,7 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
                     # Solo reemplazar si el fitness es mejor
                     if trial_fitness[i] > population[i]['fitness']:
                         population[i] = {
-                            'individual': trial_population[i],
+                            'individual': mutant_fixed,
                             'fitness': trial_fitness[i]
                         }
             
@@ -995,7 +878,7 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
                     ind_preview_start = ind[:5]
                     ind_preview_end = ind[-5:]
                 
-                print(f"  {j+1}. Fitness: {fitness_value:.6f}")
+                print(f"  {j+1}. Fitness: {fitness_value:.4f}")
                 print(f"     Primeros 5: {ind_preview_start}")
                 print(f"     Últimos 5: {ind_preview_end}")
                 print(f"     Longitud: {len(ind)}")
