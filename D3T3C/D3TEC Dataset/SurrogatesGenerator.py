@@ -1454,7 +1454,7 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
     
     # Entrenar cada arquitectura
     for i, architecture in enumerate(architectures[start_idx:], start=start_idx):
-        print(f"\n🔹 Entrenando arquitectura #{i+1}/{len(architectures)}")
+        print(f"\n🔹 Entrenando arquitectura #{i+1}/{len(architectures[start_idx:])}")
         
         try:
             # Construir modelo
