@@ -1448,7 +1448,7 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
     architectures = load_architectures_from_csv(csv_path_architectures)
     
     # Iniciar desde el último checkpoint
-    start_idx = checkpoint.get('architecture_index', -1)
+    start_idx = checkpoint.get('last_completed', -1) + 1
     print(f"📌 Iniciando desde el checkpoint: arquitectura #{start_idx}")
     if start_idx > 0:
         print(f"📌 Continuando desde el checkpoint: arquitectura #{start_idx}")
