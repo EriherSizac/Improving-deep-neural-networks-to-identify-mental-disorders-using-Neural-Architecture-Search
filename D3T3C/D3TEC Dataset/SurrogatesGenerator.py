@@ -1455,7 +1455,7 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
     
     # Entrenar cada arquitectura
     for i, architecture in enumerate(architectures[start_idx:], start=start_idx):
-        print(f"\n🔹 Entrenando arquitectura #{i+1}/{len(architectures[start_idx:])}")
+        print(f"\n🔹 Entrenando arquitectura #{i+1}/{len(architectures)}")
         
         try:
             # Construir modelo
@@ -1481,5 +1481,5 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
     print("✅ Entrenamiento completado con éxito.")
 
 train_models("EncodedChromosomes_v5.csv", "Dataset.csv", "./SM-27",
-             save_file="EncodedChromosomes_v5_results.csv", verbose=False, batch_size=700, epochs=100 , 
+             save_file="EncodedChromosomes_v5_results.csv", verbose=False, batch_size=500, epochs=100 , 
              scaler_file=os.path.join(os.path.dirname("./SM-27"), "normalization_params.json"))
