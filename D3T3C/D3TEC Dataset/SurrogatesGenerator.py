@@ -303,7 +303,7 @@ def encode_model_architecture(model_dict, max_alleles=48):
 
     # Recortar si excede `max_alleles`
     final_encoding = encoded_layers[:max_alleles]
-    print(f"Final Encoded Model: {final_encoding}")
+    #print(f"Final Encoded Model: {final_encoding}")
     
     return final_encoding
 
@@ -811,8 +811,8 @@ def map_to_architecture_params(latin_hypercube_sample):
     return {}
 
 # Ejecutar validación y guardado en CSV
-if validate_latin_hypercube(num_models=200):
-    save_encoded_models_to_csv(num_models=200, filename="EncodedChromosomes_v5.csv")
+""" if validate_latin_hypercube(num_models=200):
+    save_encoded_models_to_csv(num_models=200, filename="EncodedChromosomes_v5.csv") """
 
 # %%
 
