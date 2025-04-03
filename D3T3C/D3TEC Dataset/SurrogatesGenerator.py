@@ -1448,13 +1448,13 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
     architectures = load_architectures_from_csv(csv_path_architectures)
     
     # Iniciar desde el último checkpoint
-    start_idx = checkpoint.get('architecture_index', -1) + 1
+    start_idx = checkpoint.get('architecture_index', -1)
     if start_idx > 0:
         print(f"📌 Continuando desde el checkpoint: arquitectura #{start_idx}")
     
     # Entrenar cada arquitectura
     for i, architecture in enumerate(architectures[start_idx:], start=start_idx):
-        print(f"\n🔹 Entrenando arquitectura #{i+1 + start_idx  }/{len(architectures)}")
+        print(f"\n🔹 Entrenando arquitectura #{i+1}/{len(architectures)}")
         
         try:
             # Construir modelo
@@ -1476,7 +1476,7 @@ def train_models(csv_path_architectures, dataset_csv, directory, epochs=20, batc
             print(f"❌ Error al entrenar la arquitectura #{i+1}: {str(e)}")
             print_exc()
             continue
-    
+
     print("✅ Entrenamiento completado con éxito.")
 
 train_models("EncodedChromosomes_v5.csv", "Dataset.csv", "./SM-27",
