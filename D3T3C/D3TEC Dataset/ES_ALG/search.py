@@ -296,6 +296,7 @@ def evaluate_population(population, surrogate_model):
     """
     # Normalizar toda la población
     normalized_population = batch_normalize_individuals(population)
+    fitness_values = []
     
     try:
         # Aplicar PCA para reducir dimensionalidad
@@ -905,7 +906,7 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
             print(f"Valor F actual: {F:.6f}")
             
             # Save checkpoint every 10 generations or at the end
-            if (gen + 1) % 10 == 0 or gen == generations - 1:
+            if (gen + 1) % 200 == 0 or gen == generations - 1:
                 print(f"Guardando checkpoint en generación {gen+1}...")
                 
                 # Si es el primer experimento y generación, best_model_overall podría ser None

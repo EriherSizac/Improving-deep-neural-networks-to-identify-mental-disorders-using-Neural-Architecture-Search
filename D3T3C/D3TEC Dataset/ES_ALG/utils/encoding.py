@@ -490,13 +490,14 @@ def convert_individual(ind, to_real=True):
 
 # %%
 def int_to_real_dom(num, domain):
-    min_i, max_i = domain
-    r = (num - min_i) / (max_i - min_i)
-    return r
+  min_i, max_i = domain
+  r = (num - min_i) / (max_i - min_i)
+  return r
 
 def real_to_int_dom(num, domain):
-    min_i, max_i = domain
-    value = min_i + num * (max_i - min_i)
-    if isinstance(min_i, int) and isinstance(max_i, int):
-        value = int(round(value))
-    return value
+  min_i, max_i = domain
+  value = min_i + num * (max_i - min_i)
+  if isinstance(min_i, int) and isinstance(max_i, int):
+      value = int(round(value))
+  return value
+
