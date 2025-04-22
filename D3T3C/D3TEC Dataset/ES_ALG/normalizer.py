@@ -4,162 +4,92 @@ Proporciona funciones para normalizar individuos antes de pasarlos al modelo sur
 """
 
 import numpy as np
-import os
-import pickle
 import warnings
+from pathlib import Path
+import joblib
 
-# Ruta al scaler preentrenado
-SCALER_PATH = "F:\Github\Improving-deep-neural-networks-to-identify-mental-disorders-using-Neural-Architecture-Search\D3T3C\D3TEC Dataset\surrogates_v5.2\scaler_standard.pkl"
+# Nombre del archivo del scaler preentrenado\SCALER_FILENAME = "surrogates_v5.2/scaler.joblib"
 
-# Cargar el scaler si existe
-_scaler = None
+# Caché del objeto scaler cargado\_scaler = None
+
 def get_scaler():
     """
-    Carga y devuelve el scaler preentrenado.
-    Si no existe, devuelve None y se usará la normalización manual.
+    Carga y devuelve el scaler preentrenado usando joblib.
+    Lanza excepción si no se encuentra o no es válido.
     """
     global _scaler
     if _scaler is None:
+        project_root = Path(__file__).resolve().parent.parent
+        matches = list(project_root.rglob(SCALER_FILENAME))
+        if not matches:
+            raise RuntimeError(f"No se encontró '{SCALER_FILENAME}' bajo {project_root}")
+        scaler_path = matches[0]
         try:
-            if os.path.exists(SCALER_PATH):
-                # Intentar diferentes métodos para cargar el scaler
-                try:
-                    # Método 1: pickle estándar
-                    with open(SCALER_PATH, 'rb') as f:
-                        _scaler = pickle.load(f)
-                    print(f"Scaler cargado desde: {SCALER_PATH}")
-                except Exception as e1:
-                    try:
-                        # Método 2: pickle con encoding latin1
-                        with open(SCALER_PATH, 'rb') as f:
-                            _scaler = pickle.load(f, encoding='latin1')
-                        print(f"Scaler cargado con encoding latin1 desde: {SCALER_PATH}")
-                    except Exception as e2:
-                        try:
-                            # Método 3: joblib
-                            import joblib
-                            _scaler = joblib.load(SCALER_PATH)
-                            print(f"Scaler cargado con joblib desde: {SCALER_PATH}")
-                        except Exception as e3:
-                            warnings.warn(f"No se pudo cargar el scaler después de varios intentos. Se usará normalización manual.")
-            else:
-                warnings.warn(f"No se encontró el scaler en {SCALER_PATH}. Se usará normalización manual.")
+            _scaler = joblib.load(scaler_path)
         except Exception as e:
-            warnings.warn(f"Error al cargar el scaler: {str(e)}. Se usará normalización manual.")
+            raise RuntimeError(f"No se pudo cargar el scaler desde {scaler_path}: {e}")
+        if not hasattr(_scaler, 'transform'):
+            raise RuntimeError(f"El objeto cargado desde {scaler_path} no tiene el método 'transform'.")
     return _scaler
 
 def normalize_individual(individual):
     """
     Normaliza un individuo (arquitectura) para que todos sus valores estén en el rango [0, 1].
-    Intenta usar el scaler preentrenado si está disponible, de lo contrario usa normalización manual.
-    
-    Args:
-        individual: Array o lista que representa una arquitectura neural
-        
-    Returns:
-        Array normalizado con valores en el rango [0, 1]
+    Usa el scaler preentrenado o, si falla, una normalización manual.
     """
-    # Convertir a array de numpy si no lo es
     if not isinstance(individual, np.ndarray):
         individual = np.array(individual)
-    
-    # Intentar usar el scaler preentrenado
-    scaler = get_scaler()
-    if scaler is not None:
-        # Reshape para que tenga la forma correcta para el scaler
-        reshaped_ind = individual.reshape(1, -1)
-        try:
-            # Aplicar el scaler
-            normalized = scaler.transform(reshaped_ind)
-            return normalized.flatten()
-        except Exception as e:
-            warnings.warn(f"Error al aplicar el scaler: {str(e)}. Se usará normalización manual.")
-    
-    # Si no hay scaler o falló, usar normalización manual
-    # Crear copia para no modificar el original
-    normalized = individual.copy().astype(float)
-    
-    # Normalizar cada valor según su tipo y rango esperado
+    try:
+        scaler = get_scaler()
+        reshaped = individual.reshape(1, -1)
+        return scaler.transform(reshaped).flatten()
+    except Exception:
+        warnings.warn("Fallo al aplicar scaler, usando normalización manual.")
+    normalized = individual.astype(float).copy()
     for i in range(len(normalized)):
-        # Cada posición en el array tiene un significado específico y un rango
-        pos = i % 3  # Posición dentro del triplete (tipo, param1, param2)
-        
-        if pos == 0:  # Tipo de capa (0-8)
+        pos = i % 3
+        if pos == 0:
             normalized[i] = normalized[i] / 9.0
-        elif pos == 1:  # Primer parámetro (varía según el tipo)
-            # Normalizar según el tipo de capa (posición anterior)
+        elif pos == 1:
             layer_type = int(individual[i-1])
-            if layer_type == 0:  # Conv2D
-                # filters: [4, 32]
+            if layer_type == 0:
                 normalized[i] = (normalized[i] - 4) / 28.0 if normalized[i] >= 4 else 0
-            elif layer_type == 1:  # SelfAttention
-                # filters: [4, 64]
+            elif layer_type == 1:
                 normalized[i] = (normalized[i] - 4) / 60.0 if normalized[i] >= 4 else 0
-            elif layer_type == 2:  # BatchNorm
-                normalized[i] = 0  # No tiene parámetros relevantes
-            elif layer_type == 3:  # MaxPooling
-                # strides: 1 o 2
+            elif layer_type in (2, 6, 7):
+                normalized[i] = 0
+            elif layer_type == 3:
                 normalized[i] = 0 if normalized[i] <= 1 else 1
-            elif layer_type == 4:  # Dropout
-                # rate: [0.2, 0.5]
+            elif layer_type == 4:
                 normalized[i] = (normalized[i] - 0.2) / 0.3 if 0.2 <= normalized[i] <= 0.5 else (0 if normalized[i] < 0.2 else 1)
-            elif layer_type == 5:  # Dense
-                # units: [1, 512]
+            elif layer_type == 5:
                 normalized[i] = (normalized[i] - 1) / 511.0 if normalized[i] >= 1 else 0
-            elif layer_type == 6:  # Flatten
-                normalized[i] = 0  # No tiene parámetros relevantes
-            elif layer_type == 7:  # DontCare
-                normalized[i] = 0  # No tiene parámetros relevantes
-            elif layer_type == 8:  # Repetition
-                # repetition_layers: [1, 4]
+            elif layer_type == 8:
                 normalized[i] = (normalized[i] - 1) / 3.0 if normalized[i] >= 1 else 0
-        elif pos == 2:  # Segundo parámetro (varía según el tipo)
-            # Normalizar según el tipo de capa (posición -2)
-            layer_type = int(individual[i-2])
-            if layer_type == 0:  # Conv2D
-                # strides: 1 o 2
-                normalized[i] = 0 if normalized[i] <= 1 else 1
-            elif layer_type == 1:  # SelfAttention
-                # attention_heads: [1, 8]
-                normalized[i] = (normalized[i] - 1) / 7.0 if normalized[i] >= 1 else 0
-            elif layer_type == 8:  # Repetition
-                # repetition_count: [1, 3]
-                normalized[i] = (normalized[i] - 1) / 2.0 if normalized[i] >= 1 else 0
+        else:
+            layer_type = int(individual[i - (2 if pos == 2 else 1)])
+            if pos == 2:
+                if layer_type == 0:
+                    normalized[i] = 0 if normalized[i] <= 1 else 1
+                elif layer_type == 1:
+                    normalized[i] = (normalized[i] - 1) / 7.0 if normalized[i] >= 1 else 0
+                elif layer_type == 8:
+                    normalized[i] = (normalized[i] - 1) / 2.0 if normalized[i] >= 1 else 0
             else:
-                normalized[i] = 0  # Otros tipos no usan este parámetro
-    
+                normalized[i] = normalized[i]
     return normalized
 
 def batch_normalize_individuals(individuals):
     """
     Normaliza un lote de individuos para pasarlos al modelo surrogate.
-    Intenta usar el scaler preentrenado si está disponible, de lo contrario usa normalización manual.
-    
-    Args:
-        individuals: Lista o array de individuos a normalizar
-        
-    Returns:
-        Array con todos los individuos normalizados
+    Usa el scaler preentrenado o, si falla, la normalización manual.
     """
-    if not isinstance(individuals, np.ndarray):
-        individuals = np.array(individuals)
-    
-    # Si es un solo individuo, asegurarse de que tenga la forma correcta
-    if individuals.ndim == 1:
-        individuals = individuals.reshape(1, -1)
-    
-    # Intentar usar el scaler preentrenado
-    scaler = get_scaler()
-    if scaler is not None:
-        try:
-            # Aplicar el scaler a todo el batch
-            return scaler.transform(individuals)
-        except Exception as e:
-            warnings.warn(f"Error al aplicar el scaler al batch: {str(e)}. Se usará normalización manual.")
-    
-    # Si no hay scaler o falló, usar normalización manual
-    normalized_batch = np.zeros_like(individuals, dtype=float)
-    for i in range(len(individuals)):
-        normalized_batch[i] = normalize_individual(individuals[i])
-    
-    return normalized_batch
+    array = np.array(individuals)
+    if array.ndim == 1:
+        array = array.reshape(1, -1)
+    try:
+        scaler = get_scaler()
+        return scaler.transform(array)
+    except Exception:
+        warnings.warn("Fallo al aplicar scaler al batch, usando normalización manual.")
+    return np.vstack([normalize_individual(ind) for ind in array])

@@ -1,1 +1,3 @@
 python -m ES_ALG ./surrogates_v5/xgboost_model_pca.pkl --population-size 1500 --generations 1500 --n-experiments 30 --auto-adapt --selection-method random
+
+python -m ES_ALG ./surrogates_v5.2/xgboost_model_pca.pkl --population-size 2500 --generations 2500 --n-experiments 30 --auto-adapt --selection-method random --new-run
