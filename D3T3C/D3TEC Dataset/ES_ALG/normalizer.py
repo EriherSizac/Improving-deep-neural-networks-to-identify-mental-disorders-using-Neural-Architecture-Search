@@ -37,6 +37,7 @@ def normalize_individual(individual):
     Normaliza un individuo (arquitectura) para que todos sus valores estén en el rango [0, 1].
     Usa el scaler preentrenado o, si falla, una normalización manual.
     """
+    return individual
     if not isinstance(individual, np.ndarray):
         individual = np.array(individual)
     try:
@@ -84,6 +85,7 @@ def batch_normalize_individuals(individuals):
     Normaliza un lote de individuos para pasarlos al modelo surrogate.
     Usa el scaler preentrenado o, si falla, la normalización manual.
     """
+    return individuals
     array = np.array(individuals)
     if array.ndim == 1:
         array = array.reshape(1, -1)
