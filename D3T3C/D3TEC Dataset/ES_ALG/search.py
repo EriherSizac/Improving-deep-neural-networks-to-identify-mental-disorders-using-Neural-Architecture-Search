@@ -12,6 +12,7 @@ import re
 import matplotlib.pyplot as plt
 from .normalizer import normalize_individual, batch_normalize_individuals
 import inspect
+import pickle
 
      # Prepare checkpoint data - convert all NumPy arrays to Python native types
 def numpy_to_python(obj):
@@ -27,6 +28,14 @@ def numpy_to_python(obj):
         return [numpy_to_python(x) for x in obj]
     else:
         return obj  
+
+# New centralized checkpoint saving function
+def save_checkpoint(path, data):
+    """Save checkpoint data to a file using pickle."""
+    # Ensure directory exists
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'wb') as f:
+        pickle.dump(data, f)
 
 def pop_gen(num_models, max_alleles=48):
     """
@@ -354,7 +363,7 @@ def find_latest_checkpoint(checkpoint_dir='./checkpoints'):
         latest_save_dir = save_dirs[0]
         
         # Buscar archivos de checkpoint en el directorio más reciente
-        checkpoint_files = glob.glob(os.path.join(latest_save_dir, "checkpoint_*.json"))
+        checkpoint_files = glob.glob(os.path.join(latest_save_dir, "checkpoint_*.pkl"))
         if not checkpoint_files:
             print(f"No se encontraron archivos de checkpoint en {latest_save_dir}.")
             return None
@@ -545,8 +554,8 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
     if resume_from and os.path.exists(resume_from):
         print(f"Cargando checkpoint desde {resume_from}...")
         try:
-            with open(resume_from, 'r') as f:
-                checkpoint_data = json.load(f)
+            with open(resume_from, 'rb') as f:
+                checkpoint_data = pickle.load(f)
             
             # Extraer información del checkpoint
             exp_idx = checkpoint_data.get('experiment', 0)
@@ -557,10 +566,7 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
             start_generation = gen
             
             # Cargar población y fitness
-            population = []
-            for p in checkpoint_data.get('population', []):
-                population.append({'individual': p.get('individual')})
-            
+            population = checkpoint_data.get('population', [])
             fitness = np.array(checkpoint_data.get('fitness', []))
             
             # Cargar el mejor modelo del experimento
@@ -571,8 +577,8 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
             f_history_exp = checkpoint_data.get('F_history', [])
             
             # Cargar el mejor modelo global si existe
-            if 'best_model' in checkpoint_data:
-                best_model_overall = checkpoint_data.get('best_model')
+            if 'best_model_overall' in checkpoint_data:
+                best_model_overall = checkpoint_data.get('best_model_overall')
                 best_fitness_overall = best_model_overall.get('fitness', float('-inf'))
             
             # Obtener el directorio de guardado
@@ -593,8 +599,8 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
         if latest_checkpoint:
             print(f"Encontrado checkpoint automáticamente: {latest_checkpoint}")
             try:
-                with open(latest_checkpoint, 'r') as f:
-                    checkpoint_data = json.load(f)
+                with open(latest_checkpoint, 'rb') as f:
+                    checkpoint_data = pickle.load(f)
                 
                 # Extraer información del checkpoint
                 exp_idx = checkpoint_data.get('experiment', 0)
@@ -605,10 +611,7 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
                 start_generation = gen
                 
                 # Cargar población y fitness
-                population = []
-                for p in checkpoint_data.get('population', []):
-                    population.append({'individual': p.get('individual')})
-                
+                population = checkpoint_data.get('population', [])
                 fitness = np.array(checkpoint_data.get('fitness', []))
                 
                 # Cargar el mejor modelo del experimento
@@ -619,8 +622,8 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
                 f_history_exp = checkpoint_data.get('F_history', [])
                 
                 # Cargar el mejor modelo global si existe
-                if 'best_model' in checkpoint_data:
-                    best_model_overall = checkpoint_data.get('best_model')
+                if 'best_model_overall' in checkpoint_data:
+                    best_model_overall = checkpoint_data.get('best_model_overall')
                     best_fitness_overall = best_model_overall.get('fitness', float('-inf'))
                 
                 # Obtener el directorio de guardado
@@ -920,7 +923,7 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
                 os.makedirs(saves_dir, exist_ok=True)
                 
                 # Obtener el número del próximo checkpoint
-                checkpoint_files = [f for f in os.listdir(saves_dir) if f.startswith('checkpoint_') and f.endswith('.json')]
+                checkpoint_files = [f for f in os.listdir(saves_dir) if f.startswith('checkpoint_') and f.endswith('.pkl')]
                 checkpoint_numbers = [int(re.search(r'checkpoint_(\d+)_', f).group(1)) for f in checkpoint_files if re.search(r'checkpoint_(\d+)_', f)]
                 checkpoint_number = 1 if not checkpoint_numbers else max(checkpoint_numbers) + 1
                 
@@ -940,7 +943,7 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
                         'individual': best_model_exp['individual'],
                         'fitness': float(best_model_exp['fitness']) if isinstance(best_model_exp['fitness'], (np.ndarray, np.number)) else best_model_exp['fitness']
                     },
-                    'best_model': {
+                    'best_model_overall': {
                         'individual': best_model_overall['individual'],
                         'fitness': float(best_model_overall['fitness']) if isinstance(best_model_overall['fitness'], (np.ndarray, np.number)) else best_model_overall['fitness']
                     },
@@ -949,15 +952,8 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
                     'cr_rate': float(cr_rate) if isinstance(cr_rate, (np.ndarray, np.number)) else cr_rate
                 }
                 
-                # Convertir todo a tipos Python nativos
-                checkpoint_data = numpy_to_python(checkpoint_data)
-                
                 # Save checkpoint
-                checkpoint_path = os.path.join(saves_dir, f"checkpoint_{checkpoint_number}_exp{exp_idx+1}_gen{gen+1}.json")
-                with open(checkpoint_path, 'w') as f:
-                    json.dump(checkpoint_data, f, indent=2)
-                
-                print(f"Checkpoint guardado en {checkpoint_path}")
+                save_checkpoint(os.path.join(saves_dir, f"checkpoint_{checkpoint_number}_exp{exp_idx+1}_gen{gen+1}.pkl"), checkpoint_data)
         
         # Get top 3 models from current experiment
         sorted_indices = np.argsort(fitness_values)[::-1]  # Ordenados de mayor a menor fitness
@@ -1005,7 +1001,7 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
         all_F_histories.append(f_history_exp)
         
         # Save final checkpoint for this experiment
-        final_checkpoint_path = os.path.join(saves_dir, f'final_checkpoint_exp{exp_idx+1}.json')
+        final_checkpoint_path = os.path.join(saves_dir, f'final_checkpoint_exp{exp_idx+1}.pkl')
         
         # Prepare checkpoint data
         checkpoint_data = {
@@ -1027,17 +1023,8 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
             'F_history': [float(f) for f in f_history_exp]
         }
         
-        # Convertir todo a tipos Python nativos
-        checkpoint_data = numpy_to_python(checkpoint_data)
-        
-        with open(final_checkpoint_path, 'w') as f:
-            json.dump(checkpoint_data, f, indent=2)
-        
-        print(f"Checkpoint final del experimento guardado en {final_checkpoint_path}")
-        print(f"Mejor fitness en experimento {exp_idx+1}: {top_3_models[0]['fitness']}")
-        
-        # Reiniciar start_generation para los siguientes experimentos
-        start_generation = 0
+        # Save final checkpoint
+        save_checkpoint(final_checkpoint_path, checkpoint_data)
     
     # Prepare final results
     results = {
@@ -1050,33 +1037,27 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
         'all_F_histories': [[float(f) if isinstance(f, (np.ndarray, np.number)) else f for f in history] for history in all_F_histories]
     }
     
-    # Convertir todo a tipos Python nativos
-    results = numpy_to_python(results)
-    
-    # Guardar checkpoint final
-    final_checkpoint_path = os.path.join(saves_dir, f'final_checkpoint.json')
+    # Save final checkpoint
+    final_checkpoint_path = os.path.join(saves_dir, f'final_checkpoint.pkl')
     final_checkpoint_data = {
         'best_fitness_overall': float(best_fitness_overall) if isinstance(best_fitness_overall, (np.ndarray, np.number)) else best_fitness_overall,
         'best_model_overall': {
             'individual': best_model_overall['individual'],
             'fitness': float(best_model_overall['fitness']) if isinstance(best_model_overall['fitness'], (np.ndarray, np.number)) else best_model_overall['fitness']
         },
-        'top_models_per_experiment': numpy_to_python(top_models_per_experiment),
+        'top_models_per_experiment': top_models_per_experiment,
         'all_best_models': [
             {
                 'individual': model['individual'],
                 'fitness': float(model['fitness']) if isinstance(model['fitness'], (np.ndarray, np.number)) else model['fitness']
             } for model in all_best_models
         ],
-        'all_fitness_histories': numpy_to_python(all_fitness_histories),
-        'all_F_histories': numpy_to_python(all_F_histories)
+        'all_fitness_histories': all_fitness_histories,
+        'all_F_histories': all_F_histories
     }
     
-    # Convertir todo a tipos Python nativos
-    final_checkpoint_data = numpy_to_python(final_checkpoint_data)
-    
-    with open(final_checkpoint_path, 'w') as f:
-        json.dump(final_checkpoint_data, f, indent=2)
+    # Save final checkpoint
+    save_checkpoint(final_checkpoint_path, final_checkpoint_data)
     
     print(f"\nBúsqueda completada. Checkpoint final guardado en {final_checkpoint_path}")
     

@@ -9,10 +9,7 @@ import pickle
 import warnings
 
 # Ruta al scaler preentrenado
-SCALER_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    'ES_SURROGATE_TRAINER', 'surrogates', 'feature_scaler.pkl'
-)
+SCALER_PATH = "F:\Github\Improving-deep-neural-networks-to-identify-mental-disorders-using-Neural-Architecture-Search\D3T3C\D3TEC Dataset\surrogates_v5.2\scaler_standard.pkl"
 
 # Cargar el scaler si existe
 _scaler = None
