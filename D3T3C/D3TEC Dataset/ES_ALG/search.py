@@ -854,6 +854,7 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
             
             # Update fitness history
             fitness_history_exp.append(np.mean(fitness_values))
+            f_history_exp.append(F)
             
             # Print current best fitness
             best_fitness = best_model_exp['fitness']
@@ -1160,7 +1161,7 @@ def plot_combined_metrics(all_fitness_histories, all_f_histories, save_path, n_e
                 fitness_matrix[i],
                 linestyle='-',
                 color='red',
-                alpha=0.5
+                alpha=0.3
             )
     
     # Calcular la media y desviación estándar
@@ -1204,7 +1205,7 @@ def plot_combined_metrics(all_fitness_histories, all_f_histories, save_path, n_e
         return
     
     # Crear figura para valor F
-    plt.figure(figsize=(12, 8))
+    plt.figure(figsize=(12, 6))
     
     # Determinar el número máximo de generaciones para F
     max_generations_f = max(len(f_history) for f_history in valid_f_histories)
@@ -1226,8 +1227,8 @@ def plot_combined_metrics(all_fitness_histories, all_f_histories, save_path, n_e
                 generations_f,
                 f_matrix[i],
                 linestyle='-',
-                color='green',
-                alpha=0.5
+                color='blue',
+                alpha=0.3
             )
     
     # Calcular la media y desviación estándar
@@ -1239,7 +1240,7 @@ def plot_combined_metrics(all_fitness_histories, all_f_histories, save_path, n_e
         generations_f,
         mean_f,
         linestyle='-',
-        color='purple',
+        color='red',
         linewidth=2,
         label='Valor F Medio'
     )
@@ -1249,7 +1250,7 @@ def plot_combined_metrics(all_fitness_histories, all_f_histories, save_path, n_e
         generations_f,
         mean_f - std_f,
         mean_f + std_f,
-        color='purple',
+        color='red',
         alpha=0.2,
         label='Desviación Estándar'
     )
@@ -1257,7 +1258,7 @@ def plot_combined_metrics(all_fitness_histories, all_f_histories, save_path, n_e
     plt.title('Evolución del Factor F por Generación en Todos los Experimentos')
     plt.xlabel('Generaciones')
     plt.ylabel('Valor F (factor de mutación)')
-    plt.legend()
+    plt.legend(loc='upper right')
     plt.grid(True)
     
     # Guardar gráfica de valor F

@@ -274,21 +274,21 @@ def encode_model_architecture(model_dict, max_alleles=48):
                 param2 = next((key for key, value in activation_options.items() if value == layer.get('activation', 'relu')), 0)
                 encoded_layer = [layer_type_idx, param1, param2, 0]
 
-            elif layer['type'] == 'MaxPooling':
+            elif layer_type == 'MaxPooling':
                 param1 = next((key for key, value in stride_options.items() if value == layer.get('strides', 1.0)), 0)
                 encoded_layer = [layer_type_idx, param1, 0, 0]
 
-            elif layer['type'] == 'Dropout':
+            elif layer_type == 'Dropout':
                 rate = dropout_options.get(layer.get('rate', 0.2), 0.2)
                 encoded_layer = [layer_type_idx, rate, 0, 0]
 
-            elif layer['type'] == 'BatchNorm':
+            elif layer_type == 'BatchNorm':
                 encoded_layer = [layer_type_idx, 0, 0, 0]
 
-            elif layer['type'] == 'Flatten':
+            elif layer_type == 'Flatten':
                 encoded_layer = [layer_type_idx, 0, 0, 0]
 
-            elif layer['type'] == 'DontCare':
+            elif layer_type == 'DontCare':
                 encoded_layer = [layer_type_idx, 0, 0, 0]
 
         # Añadir la codificación de la capa a la lista de alelos
@@ -1322,6 +1322,8 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.BCEWithLogitsLoss()
+    scaler = GradScaler()
+    best_val_loss = float('inf')
 
     for epoch in range(config.epochs):
         model.train()
@@ -1331,15 +1333,37 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
             inputs, labels = inputs.to(device), labels.float().to(device)
             optimizer.zero_grad()
 
-            outputs = model(inputs)
-            labels = labels.view(-1, 1)
-            loss = criterion(outputs, labels)
+            with autocast():
+                outputs = model(inputs)
+                labels = labels.view(-1, 1)
+                loss = criterion(outputs, labels)
             
-            loss.backward()
-            optimizer.step()
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
             running_loss += loss.item()
         
         print(f"🔹 Epoch [{epoch+1}/{config.epochs}] - Loss: {running_loss / len(train_loader):.4f}")
+
+        # Validación tras cada época
+        model.eval()
+        val_running_loss = 0.0
+        with torch.no_grad():
+            for inputs, labels in val_loader:
+                inputs, labels = inputs.to(device), labels.float().to(device)
+                labels = labels.view(-1, 1)
+                with autocast():
+                    outputs = model(inputs)
+                    loss = criterion(outputs, labels)
+                val_running_loss += loss.item()
+        val_loss = val_running_loss / len(val_loader)
+        print(f"🔸 Epoch [{epoch+1}/{config.epochs}] - Val Loss: {val_loss:.4f}")
+
+        # Guardar mejor modelo
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            torch.save(model.state_dict(), getattr(config, 'best_model_path', 'best_model.pth'))
+            print(f"💾 Mejor modelo guardado en epoch {epoch+1}")
 
     print("📌 Entrenamiento finalizado. Evaluando en test...")
     model.eval()
@@ -1351,8 +1375,8 @@ def train_and_evaluate_model(model, train_loader, val_loader, test_loader, confi
             labels = labels.view(-1, 1)
             outputs = model(inputs).squeeze()  # Asegúrate que squeeze() no elimine la dimensión batch
             predictions = (torch.sigmoid(outputs) > 0.5).int()
-            y_true.extend(labels.cpu().numpy().tolist())
-            y_pred.extend(predictions.cpu().numpy().tolist())
+            y_true.extend(labels.cpu().numpy().ravel().tolist())
+            y_pred.extend(predictions.cpu().numpy().ravel().tolist())
 
     accuracy = (np.array(y_true) == np.array(y_pred)).mean()
     precision, recall, f1, specificity = calculate_metrics(y_true, y_pred)
@@ -1465,6 +1489,13 @@ def train_models(archs, dataset_csv, directory, epochs=20, batch_size=1, save_fi
             # Guardar resultados
             save_results_to_csv(save_file, architecture, results)
             
+            # Guardar modelo si F1 > 0.6
+            if results[4] > 0.6:
+                f1_str = f"{results[4]:.2f}"
+                model_name = f"model_{i+1}_F1_{f1_str}.pth"
+                torch.save(model.state_dict(), model_name)
+                print(f"💾 Modelo guardado: {model_name}")
+            
             # Actualizar checkpoint
             save_checkpoint(config.checkpoint_file, i)
             
@@ -1485,7 +1516,7 @@ def train_models(archs, dataset_csv, directory, epochs=20, batch_size=1, save_fi
 [7, 0, 0, 0, 8, 1, 32, 0, 7, 0, 0, 0, 3, 2, 0, 0, 4, 512, 0, 0, 7, 0, 0, 0, 7, 0, 0, 0, 7, 0, 0, 0, 7, 0, 0, 0, 7, 0, 0, 0, 7, 0, 0, 0, 7, 0, 0, 0]]
  """
 
-archs = [[1, 4, 0, 0, 0, 16, 0, 1, 1, 16, 0, 0, 0, 8, 0, 1, 1, 8, 0, 0, 5, 0, 0, 0, 4, 32, 1, 0, 4, 1, 2, 0, 7, 0, 0, 0, 7, 0, 0, 0, 7, 0, 0, 0, 7, 0, 0, 0]]
+archs = [[8, 0, 1, 0, 0, 32, 0, 0, 0, 4, 0, 0, 8, 1, 7, 0, 0, 32, 0, 0, 8, 5, 32, 0, 8, 6, 5, 0, 0, 4, 0, 0, 0, 32, 1, 0, 0, 32, 1, 0, 8, 1, 9, 0, 8, 10, 1, 0]]
 train_models(archs, "Dataset.csv", "./SM-27",
              save_file="Final_Results.csv", verbose=False, batch_size=200, epochs=100 , 
              scaler_file=os.path.join(os.path.dirname("./SM-27"), "normalization_params.json"))
