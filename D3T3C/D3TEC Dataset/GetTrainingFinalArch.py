@@ -1516,7 +1516,7 @@ def train_models(archs, dataset_csv, directory, epochs=20, batch_size=1, save_fi
 [7, 0, 0, 0, 8, 1, 32, 0, 7, 0, 0, 0, 3, 2, 0, 0, 4, 512, 0, 0, 7, 0, 0, 0, 7, 0, 0, 0, 7, 0, 0, 0, 7, 0, 0, 0, 7, 0, 0, 0, 7, 0, 0, 0, 7, 0, 0, 0]]
  """
 
-archs = [[8, 0, 1, 0, 0, 32, 0, 0, 0, 4, 0, 0, 8, 1, 7, 0, 0, 32, 0, 0, 8, 5, 32, 0, 8, 6, 5, 0, 0, 4, 0, 0, 0, 32, 1, 0, 0, 32, 1, 0, 8, 1, 9, 0, 8, 10, 1, 0]]
+archs = [[8, 0, 10, 0, 7, 0, 0, 0, 3, 0, 0, 0, 8, 1, 1, 0, 8, 1, 2, 0, 8, 0, 1, 0, 6, 4, 4, 0, 7, 0, 0, 0, 7, 0, 0, 0, 2, 1, 0, 0, 8, 1, 1, 0, 7, 0, 0, 0]]
 train_models(archs, "Dataset.csv", "./SM-27",
              save_file="Final_Results.csv", verbose=False, batch_size=200, epochs=100 , 
              scaler_file=os.path.join(os.path.dirname("./SM-27"), "normalization_params.json"))

@@ -1136,24 +1136,20 @@ def plot_combined_metrics(all_fitness_histories, all_f_histories, save_path, n_e
     if not valid_fitness_histories:
         print("No hay datos de fitness para generar gráficas combinadas.")
         return
-    
-    # Crear figura para fitness
-    plt.figure(figsize=(12, 8))
-    
+
     # Determinar el número máximo de generaciones
-    max_generations = max(len(fitness) for fitness in valid_fitness_histories)
+    max_generations = max(len(f) for f in valid_fitness_histories)
     generations = np.arange(1, max_generations + 1)
-    
-    # Inicializar matriz para almacenar valores de fitness
+
+    # Inicializar matriz de fitness
     fitness_matrix = np.full((n_experiments, max_generations), np.nan)
-    
-    # Llenar la matriz con los valores de fitness
-    for i, fitness_history in enumerate(all_fitness_histories):
-        if fitness_history:
-            fitness_length = len(fitness_history)
-            fitness_matrix[i, :fitness_length] = fitness_history
-    
-    # Graficar todas las ejecuciones en gris claro
+    for i, f in enumerate(all_fitness_histories):
+        if f:
+            length = len(f)
+            fitness_matrix[i, :length] = f
+
+    # Graficar todas las ejecuciones en rojo semitransparente
+    plt.figure(figsize=(12, 8))
     for i in range(n_experiments):
         if not np.all(np.isnan(fitness_matrix[i])):
             plt.plot(
@@ -1161,66 +1157,58 @@ def plot_combined_metrics(all_fitness_histories, all_f_histories, save_path, n_e
                 fitness_matrix[i],
                 linestyle='-',
                 color='red',
-                alpha=0.3
+                alpha=0.5
             )
-    
-    # Calcular la media y desviación estándar
+
+    # Calcular media y desviación estándar
     mean_fitness = np.nanmean(fitness_matrix, axis=0)
     std_fitness = np.nanstd(fitness_matrix, axis=0)
-    
-    # Graficar la media del fitness
+
+    # Graficar la media y sombreado de desviación estándar
     plt.plot(
         generations,
         mean_fitness,
         linestyle='-',
         color='blue',
         linewidth=2,
-        label='Fitness Medio'
+        label='Mean Accuracy'
     )
-    
-    # Rellenar el área entre (media - std) y (media + std)
     plt.fill_between(
         generations,
         mean_fitness - std_fitness,
         mean_fitness + std_fitness,
         color='blue',
         alpha=0.2,
-        label='Desviación Estándar'
+        label='Standard Deviation'
     )
-    
-    plt.title('Convergencia de Fitness por Generación en Todos los Experimentos')
-    plt.xlabel('Generaciones')
-    plt.ylabel('Fitness (mayor es mejor)')
+
+    plt.title(f'Convergence Plot of Accuracy per Generation over {n_experiments} Runs')
+    plt.xlabel('Generations')
+    plt.ylabel('Accuracy')
     plt.legend()
     plt.grid(True)
-    
-    # Guardar gráfica de fitness
     plt.savefig(os.path.join(save_path, 'combined_fitness.png'), dpi=300)
     plt.close()
-    
+
     # Verificar que hay datos de valor F para graficar
     valid_f_histories = [h for h in all_f_histories if h]
     if not valid_f_histories:
         print("No hay datos de valor F para generar gráficas combinadas.")
         return
-    
-    # Crear figura para valor F
-    plt.figure(figsize=(12, 6))
-    
+
     # Determinar el número máximo de generaciones para F
-    max_generations_f = max(len(f_history) for f_history in valid_f_histories)
+    max_generations_f = max(len(f) for f in valid_f_histories)
     generations_f = np.arange(1, max_generations_f + 1)
-    
-    # Inicializar matriz para almacenar valores de F
+
+    # Inicializar matriz de valores F
     f_matrix = np.full((n_experiments, max_generations_f), np.nan)
-    
-    # Llenar la matriz con los valores de F
-    for i, f_history in enumerate(all_f_histories):
-        if f_history:
-            f_length = len(f_history)
-            f_matrix[i, :f_length] = f_history
-    
-    # Graficar todas las ejecuciones en gris claro
+    for i, f in enumerate(all_f_histories):
+        if f:
+            length = len(f)
+            f_matrix[i, :length] = f
+
+    # Graficar todas las ejecuciones de F
+    plt.figure(figsize=(12, 6))
     for i in range(n_experiments):
         if not np.all(np.isnan(f_matrix[i])):
             plt.plot(
@@ -1230,37 +1218,21 @@ def plot_combined_metrics(all_fitness_histories, all_f_histories, save_path, n_e
                 color='blue',
                 alpha=0.3
             )
-    
-    # Calcular la media y desviación estándar
+
+    # Graficar la media de F
     mean_f = np.nanmean(f_matrix, axis=0)
-    std_f = np.nanstd(f_matrix, axis=0)
-    
-    # Graficar la media del valor F
     plt.plot(
         generations_f,
         mean_f,
-        linestyle='-',
         color='red',
         linewidth=2,
-        label='Valor F Medio'
+        label='Mean F Value'
     )
-    
-    # Rellenar el área entre (media - std) y (media + std)
-    plt.fill_between(
-        generations_f,
-        mean_f - std_f,
-        mean_f + std_f,
-        color='red',
-        alpha=0.2,
-        label='Desviación Estándar'
-    )
-    
-    plt.title('Evolución del Factor F por Generación en Todos los Experimentos')
-    plt.xlabel('Generaciones')
-    plt.ylabel('Valor F (factor de mutación)')
-    plt.legend(loc='upper right')
+
+    plt.xlabel('Generations')
+    plt.ylabel('F Value')
+    plt.title(f'Progress of F over Generations across {n_experiments} Runs')
     plt.grid(True)
-    
-    # Guardar gráfica de valor F
+    plt.legend(loc='upper right')
     plt.savefig(os.path.join(save_path, 'combined_f_values.png'), dpi=300)
     plt.close()
