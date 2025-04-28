@@ -508,7 +508,7 @@ def sus_selection(fitness, num_selections):
     return selected_indices
 
 def unified_search(surrogate_model, population_size=10, generations=100, n_experiments=1, 
-                  F=0.5, cr_rate=0.5, auto_adaptation=True, checkpoint_dir='./checkpoints',
+                  F=0.5, cr_rate=0.5, auto_adaptation=True, adaptation_interval=10, checkpoint_dir='./checkpoints',
                   resume_from=None, new_run=False, selection_method='tournament'):
     """
     Función unificada para búsqueda de arquitecturas neurales usando Evolución Diferencial.
@@ -521,6 +521,7 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
         F: Factor de mutación
         cr_rate: Tasa de cruce
         auto_adaptation: Si se debe adaptar automáticamente el factor F
+        adaptation_interval: Intervalo de generaciones para adaptar F
         checkpoint_dir: Directorio para guardar checkpoints
         resume_from: Ruta a un checkpoint para reanudar la búsqueda
         new_run: Si se debe iniciar una nueva búsqueda, ignorando checkpoints existentes
@@ -845,7 +846,7 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
             fitness_values = np.array([ind['fitness'] for ind in population])
             
             # Update best model
-            best_idx = np.argmax(fitness_values)
+            best_idx = niyp.argmax(fitness_values)
             if fitness_values[best_idx] > best_model_exp['fitness']:
                 best_model_exp = {
                     'individual': population[best_idx]['individual'],
@@ -855,6 +856,16 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
             # Update fitness history
             fitness_history_exp.append(np.mean(fitness_values))
             f_history_exp.append(F)
+            
+            # Adaptar F cada adaptation_interval generaciones según regla 1/5
+            if auto_adaptation and (gen + 1) % adaptation_interval == 0:
+                succ_m_count = np.sum(trial_fitness > fitness_values)
+                ps = succ_m_count / (adaptation_interval * population_size)
+                if ps > 1/5:
+                    F /= 0.817
+                elif ps < 1/5:
+                    F *= 0.817
+                print(f"Regla 1/5 aplicada en gen {gen+1}: nuevo F = {F:.6f}")
             
             # Print current best fitness
             best_fitness = best_model_exp['fitness']
