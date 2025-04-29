@@ -1521,6 +1521,8 @@ arch = None
 with open('best_architecture.json', 'r') as f:
     archs = json.load(f)
 
+conosle.log(archs)
+
 train_models(archs, "Dataset.csv", "./SM-27",
              save_file="Final_Results.csv", verbose=False, batch_size=200, epochs=100 , 
              scaler_file=os.path.join(os.path.dirname("./SM-27"), "normalization_params.json"))
