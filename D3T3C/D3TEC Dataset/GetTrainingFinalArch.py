@@ -1518,10 +1518,10 @@ def train_models(archs, dataset_csv, directory, epochs=20, batch_size=1, save_fi
 
 """ archs = [[8, 0, 10, 0, 7, 0, 0, 0, 3, 0, 0, 0, 8, 1, 1, 0, 8, 1, 2, 0, 8, 0, 1, 0, 6, 4, 4, 0, 7, 0, 0, 0, 7, 0, 0, 0, 2, 1, 0, 0, 8, 1, 1, 0, 7, 0, 0, 0]] """
 arch = None
-with open('best_architecture.json', 'r') as f:
+with open('best_architectures.json', 'r') as f:
     archs = json.load(f)
 
-conosle.log(archs)
+print(archs)
 
 train_models(archs, "Dataset.csv", "./SM-27",
              save_file="Final_Results.csv", verbose=False, batch_size=200, epochs=100 , 
