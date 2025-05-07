@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 from .normalizer import normalize_individual, batch_normalize_individuals
 import inspect
 import pickle
+import random
 
      # Prepare checkpoint data - convert all NumPy arrays to Python native types
 def numpy_to_python(obj):
@@ -507,6 +508,27 @@ def sus_selection(fitness, num_selections):
     
     return selected_indices
 
+def get_cr_points(rp, n):
+    """
+    Determina los puntos de crossover para el algoritmo de Evolución Diferencial.
+    
+    Args:
+        rp: Tasa de recombinación (probabilidad de crossover)
+        n: Longitud del individuo
+        
+    Returns:
+        Lista de índices donde se aplicará el crossover
+    """
+    indexes = list(range(n))
+    j_star = random.sample(indexes, n // 2)
+    
+    for j in range(n):
+        if random.random() < rp and j not in j_star:
+            j_star.append(j)
+    
+    return j_star
+
+
 def unified_search(surrogate_model, population_size=10, generations=100, n_experiments=1, 
                   F=0.5, cr_rate=0.5, auto_adaptation=True, adaptation_interval=10, checkpoint_dir='./checkpoints',
                   resume_from=None, new_run=False, selection_method='tournament'):
@@ -782,11 +804,23 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
                 # Convert back to integer representation for fixArch
                 mutant_int = convert_individual(mutant, to_real=False)
                 
-                # Fix architecture to ensure valid encoding
-                mutant_fixed = fixArch(mutant_int, verbose=False)
+                # Obtener el individuo actual para el crossover
+                current_ind = population[i]['individual']
                 
-                # Agregar el individuo mutado a la población de prueba
-                trial_population.append(mutant_fixed)
+                # Aplicar crossover binomial entre el individuo actual y el mutante
+                cr_points = get_cr_points(cr_rate, len(current_ind))
+                trial_ind = []
+                for j in range(len(current_ind)):
+                    if j in cr_points:
+                        trial_ind.append(mutant_int[j])  # Usar el valor del vector mutado
+                    else:
+                        trial_ind.append(current_ind[j])  # Mantener el valor del individuo actual
+                
+                # Fix architecture to ensure valid encoding
+                trial_fixed = fixArch(trial_ind, verbose=False)
+                
+                # Agregar el individuo de prueba a la población de prueba
+                trial_population.append(trial_fixed)
             
             # Evaluar toda la población de prueba de una vez
             trial_fitness = evaluate_population(trial_population, surrogate_model)
@@ -799,7 +833,7 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
                     parent_idx = selected_indices[0]
                     
                     # Verificar si el individuo de prueba es diferente al competidor
-                    trial_ind = mutant_fixed
+                    trial_ind = trial_fixed
                     competitor_ind = population[parent_idx]['individual']
                     
                     # Verificar si son significativamente diferentes
@@ -810,7 +844,7 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
                     if (trial_fitness[i] > population[parent_idx]['fitness'] and 
                         (are_different or trial_fitness[i] > population[parent_idx]['fitness'] * 1.05)):
                         population[parent_idx] = {
-                            'individual': mutant_fixed,
+                            'individual':   trial_fixed,
                             'fitness': trial_fitness[i]
                         }
                 elif selection_method == 'sus':
@@ -819,7 +853,7 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
                     parent_idx = selected_indices[0]
                     
                     # Verificar si el individuo de prueba es diferente al competidor
-                    trial_ind = mutant_fixed
+                    trial_ind = trial_fixed
                     competitor_ind = population[parent_idx]['individual']
                     
                     # Verificar si son significativamente diferentes
@@ -830,7 +864,7 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
                     if (trial_fitness[i] > population[parent_idx]['fitness'] and 
                         (are_different or trial_fitness[i] > population[parent_idx]['fitness'] * 1.05)):
                         population[parent_idx] = {
-                            'individual': mutant_fixed,
+                            'individual': trial_fixed,
                             'fitness': trial_fitness[i]
                         }
                 else:
@@ -838,7 +872,7 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
                     # Solo reemplazar si el fitness es mejor
                     if trial_fitness[i] > population[i]['fitness']:
                         population[i] = {
-                            'individual': mutant_fixed,
+                            'individual': trial_fixed,
                             'fitness': trial_fitness[i]
                         }
             
@@ -846,7 +880,7 @@ def unified_search(surrogate_model, population_size=10, generations=100, n_exper
             fitness_values = np.array([ind['fitness'] for ind in population])
             
             # Update best model
-            best_idx = niyp.argmax(fitness_values)
+            best_idx = np.argmax(fitness_values)
             if fitness_values[best_idx] > best_model_exp['fitness']:
                 best_model_exp = {
                     'individual': population[best_idx]['individual'],
@@ -1246,4 +1280,65 @@ def plot_combined_metrics(all_fitness_histories, all_f_histories, save_path, n_e
     plt.grid(True)
     plt.legend(loc='upper right')
     plt.savefig(os.path.join(save_path, 'combined_f_values.png'), dpi=300)
-    plt.close()
+    plt.close() 
+
+
+import joblib
+import numpy as np
+import os
+import copy
+
+def evaluate_architecture(architecture_array, model_path):
+    """
+    Evalúa una arquitectura específica usando un modelo surrogate.
+    
+    Args:
+        architecture_array: Lista o array con la codificación de la arquitectura
+        model_path: Ruta al modelo surrogate
+    
+    Returns:
+        Puntuación predicha por el modelo surrogate
+    """
+    # Cargar el modelo surrogate
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"No se encontró el modelo en {model_path}")
+    
+    surrogate_model = joblib.load(model_path)
+    
+    # Hacer una copia profunda del array para no modificar el original
+    arch_copy = copy.deepcopy(architecture_array)
+    
+    # Convertir a numpy array y reshape para la predicción
+    arch_array = np.array(arch_copy).reshape(1, -1)
+    
+    # Realizar la predicción
+    score = surrogate_model.predict(arch_array)
+    
+    return score[0]
+
+# Ejemplo de uso
+if __name__ == "__main__":
+    # Ruta al modelo surrogate
+    model_path = "./surrogates_v5.2/xgboost_noscaler_model.pkl"
+    
+    # Ejemplo de arquitectura (reemplazar con tu arquitectura específica)
+    # Aquí puedes poner el array de la arquitectura que quieres evaluar
+    example_architecture = [0, 30, 0, 0, 3, 0, 0, 0, 2, 1, 0, 0, 0, 16, 0, 0, 3, 0, 0, 0, 1, 0, 0, 0, 2, 1, 0, 0, 0, 16, 0, 0, 3, 0, 0, 0, 5, 0, 0, 0, 4, 256, 0, 0, 3, 1, 0, 0]
+    
+    # Evaluar la arquitectura
+    score = evaluate_architecture(example_architecture, model_path)
+    print(f"Puntuación predicha para la arquitectura: {score}")
+    
+    # Puedes evaluar múltiples arquitecturas
+    architectures_to_evaluate = [
+        [8, 0, 1, 0, 0, 4, 1, 0, 8, 2, 1, 0, 8, 3, 7, 0, 8, 2, 1, 0, 0, 32, 0, 0, 0, 4, 0, 0, 8, 1, 3, 0, 8, 1, 1, 0, 0, 32, 1, 0, 8, 7, 5, 0, 0, 4, 0, 0],
+        [8, 0, 1, 0, 0, 4, 1, 0, 8, 2, 1, 0, 8, 3, 7, 0,
+8, 2, 1, 0, 0, 32, 0, 0, 0, 4, 0, 0, 8, 1, 3, 0,
+8, 1, 1, 0, 0, 32, 1, 0, 8, 7, 5, 0, 0, 4, 0, 0],
+    
+    ]
+    
+    print("\nEvaluación de múltiples arquitecturas:")
+    for i, arch in enumerate(architectures_to_evaluate):
+        score = evaluate_architecture(arch, model_path)
+        print(f"Arquitectura {i+1}: {score}")

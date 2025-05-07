@@ -33,8 +33,8 @@ print("Is CUDA available?: ", torch.cuda.is_available())
 
     
     # Optimización de cuDNN
-torch.backends.cudnn.benchmark = True
-torch.backends.cudnn.deterministic = False
+""" torch.backends.cudnn.benchmark = True
+torch.backends.cudnn.deterministic = False """
 #torch.set_num_threads(4)  # Prueba con 4, 2 o 1
 #torch.set_num_interop_threads(1)
 
@@ -882,7 +882,7 @@ def generate_mel_spectrogram(audio_segment, sample_rate, n_mels=128, n_fft=2048,
     return mel_spec
 
 # Ruta del archivo de audio
-file_path = "./SM-27/001_10.wav"  # Cambia esto por el archivo que estás usando
+file_path = "../SM-27/001_10.wav"  # Cambia esto por el archivo que estás usando
 
 # Cargar y fragmentar el audio en segmentos de 2 segundos
 audio_segments, sample_rate = load_audio_and_split(file_path, segment_duration=2.0)
@@ -1496,6 +1496,11 @@ def train_models(archs, dataset_csv, directory, epochs=20, batch_size=1, save_fi
                 torch.save(model.state_dict(), model_name)
                 print(f"💾 Modelo guardado: {model_name}")
             
+            # Guardar modelo final siempre
+            model_name = f"model_{i+1}_final.pth"
+            torch.save(model.state_dict(), model_name)
+            print(f"💾 Modelo final guardado: {model_name}")
+            
             # Actualizar checkpoint
             save_checkpoint(config.checkpoint_file, i)
             
@@ -1517,13 +1522,13 @@ def train_models(archs, dataset_csv, directory, epochs=20, batch_size=1, save_fi
  """
 
 """ archs = [[8, 0, 10, 0, 7, 0, 0, 0, 3, 0, 0, 0, 8, 1, 1, 0, 8, 1, 2, 0, 8, 0, 1, 0, 6, 4, 4, 0, 7, 0, 0, 0, 7, 0, 0, 0, 2, 1, 0, 0, 8, 1, 1, 0, 7, 0, 0, 0]] """
-arch = None
-with open('best_architectures.json', 'r') as f:
+archs = None
+""" with open('best_architectures.json', 'r') as f:
     archs = json.load(f)
-
+ """
 print(archs)
 
-archs = [[8, 0, 1, 0, 0, 4, 1, 0, 8, 2, 1, 0, 8, 3, 7, 0,
+""" archs = [[8, 0, 1, 0, 0, 4, 1, 0, 8, 2, 1, 0, 8, 3, 7, 0,
 8, 2, 1, 0, 0, 32, 0, 0, 0, 4, 0, 0, 8, 1, 3, 0,
 8, 1, 1, 0, 0, 32, 1, 0, 8, 7, 5, 0, 0, 4, 0, 0],
 [8, 0, 0, 0, 6, 4, 4, 0, 8, 1, 0, 0, 7, 0, 0, 0,
@@ -1535,8 +1540,13 @@ archs = [[8, 0, 1, 0, 0, 4, 1, 0, 8, 2, 1, 0, 8, 3, 7, 0,
 [8, 0, 7, 0, 8, 1, 27, 0, 0, 32, 1, 0, 0, 4, 0, 0,
 8, 4, 3, 0, 0, 32, 0, 0, 0, 4, 1, 0, 0, 4, 0, 0,
 8, 1, 1, 0, 0, 32, 0, 0, 0, 4, 1, 0, 8, 1, 1, 0]
-]
+] """
+archs = [
+      
+        [0, 30, 0, 0, 3, 0, 0, 0, 1, 0, 0, 0, 2, 1, 0, 0, 0, 16, 0, 0, 3, 0, 0, 0, 1, 0, 0, 0, 2, 1, 0, 0, 5, 0, 0, 0, 4, 256, 0, 0, 3, 1, 0, 0, 4, 1, 2, 0],
+        [1, 0, 0, 0, 0, 16, 0, 1, 1, 0, 0, 0, 0, 8, 0, 1, 1, 0, 0, 0, 5, 0, 0, 0, 4, 32, 1, 0, 4, 1, 2, 0, 7, 0, 0, 0, 7, 0, 0, 0, 7, 0, 0, 0, 7, 0, 0, 0]
 
-train_models(archs, "Dataset.csv", "./SM-27",
-             save_file="Final_Results_real.csv", verbose=False, batch_size=200, epochs=100 , 
-             scaler_file=os.path.join(os.path.dirname("./SM-27"), "normalization_params.json"))
+    ]
+train_models(archs, "../Dataset.csv", "../SM-27",
+             save_file="Final_Results_real.csv", verbose=False, batch_size=200, epochs=100, 
+             scaler_file=os.path.join(os.path.dirname("../SM-27"), "normalization_params.json"))
